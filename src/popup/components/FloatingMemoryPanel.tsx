@@ -3,7 +3,11 @@ import { loadFromChrome, saveToChrome } from "../../utils/chrome-storage";
 import { CAPTURE_MODE_STORAGE_KEY, isCaptureMode, type CaptureMode } from "../../constants/capture";
 import { FolderView } from "./FolderView";
 import { SettingsView } from "./SettingsView";
-import { MemoryMenuContent } from "./MemoryMenuContent";
+import { FavoritePromptsSection } from "./FavoritePromptsSection";
+import { ImportView } from "./ImportView";
+import { ExportView } from "./ExportView";
+import { FolderIcon, NetworkIcon } from "../../ui/icons";
+import * as S from "../../ui/styles";
 import { LanguageProvider, useTranslation } from "../../i18n/LanguageContext";
 import { ThemeProvider, useTheme } from "../../i18n/ThemeContext";
 import { getThemeTokens } from "../../ui/theme";
@@ -86,6 +90,7 @@ const GearIcon = () => (
 // ── Constants ──────────────────────────────────────────────────────────────────
 
 const PANEL_WIDTH = 420;
+const MIN_PANEL_WIDTH = 280;
 
 const THEME_TRANSITION_CSS = `
 .aim-panel * {
@@ -179,6 +184,8 @@ type PanelView = "menu" | "folder" | "settings";
 const PANEL_VIEWS: readonly string[] = ["menu", "folder", "settings"];
 const STORAGE_PANEL_OPEN = "ai-memory-panel-open";
 const STORAGE_PANEL_VIEW = "ai-memory-panel-view";
+const STORAGE_PANEL_WIDTH = "ai-memory-panel-width";
+const STORAGE_PANEL_HEIGHT = "ai-memory-panel-height";
 
 function isValidPanelView(v: unknown): v is PanelView {
   return typeof v === "string" && PANEL_VIEWS.includes(v);
@@ -217,7 +224,16 @@ function FloatingMemoryPanelInner() {
     startLeft: 0,
     startTop: 0,
   });
+  const [panelWidth, setPanelWidth] = useState(PANEL_WIDTH);
+  const resizeRef = useRef({ active: false, startX: 0, startWidth: 0, startLeft: 0 });
+  const [panelMaxH, setPanelMaxH] = useState<number | null>(null);
+  const [resizingFrom, setResizingFrom] = useState<"top" | "bottom" | null>(null);
+  const topResizeRef = useRef({ startY: 0, startH: 0, startTop: 0 });
+  const bottomResizeRef = useRef({ startY: 0, startH: 0 });
   const { width: panelMaxWidth, height: panelMaxHeight } = useViewportClamp();
+  const effectiveMaxH = panelMaxH == null ? panelMaxHeight : Math.min(panelMaxH, panelMaxHeight);
+  const compact = panelWidth < 340;
+  const narrow = panelWidth < 300;
 
   useEffect(() => {
     safeRuntimeSendMessage<GetCaptureModeResponse>({ type: "GET_CAPTURE_MODE" }, (response) => {
@@ -269,6 +285,10 @@ function FloatingMemoryPanelInner() {
       const view = await loadFromChrome(STORAGE_PANEL_VIEW, isValidPanelView);
       if (open !== null) setPanelOpen(open);
       if (view !== null) setPanelView(view);
+      const savedWidth = await loadFromChrome(STORAGE_PANEL_WIDTH, (v): v is number => typeof v === "number" && v >= MIN_PANEL_WIDTH);
+      if (savedWidth !== null) setPanelWidth(savedWidth);
+      const savedH = await loadFromChrome(STORAGE_PANEL_HEIGHT, (v): v is number => typeof v === "number" && v > 0);
+      if (savedH !== null) setPanelMaxH(savedH);
       persistedRef.current = true;
     })();
   }, []);
@@ -283,6 +303,17 @@ function FloatingMemoryPanelInner() {
     if (!persistedRef.current) return;
     void saveToChrome(STORAGE_PANEL_VIEW, panelView);
   }, [panelView]);
+
+  useEffect(() => {
+    if (!persistedRef.current) return;
+    void saveToChrome(STORAGE_PANEL_WIDTH, panelWidth);
+  }, [panelWidth]);
+
+  useEffect(() => {
+    if (!persistedRef.current) return;
+    if (panelMaxH == null) return;
+    void saveToChrome(STORAGE_PANEL_HEIGHT, panelMaxH);
+  }, [panelMaxH]);
 
   const closePanel = useCallback(() => setPanelOpen(false), []);
   const openPanel = useCallback(() => {
@@ -406,6 +437,97 @@ function FloatingMemoryPanelInner() {
       window.addEventListener("mouseup", onUp);
     },
     [panelPos, getDefaultPanelPosition, panelMaxWidth, panelMaxHeight],
+  );
+
+  const onResizeMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const defaultPos = getDefaultPanelPosition();
+      const currentLeft = panelPos?.left ?? defaultPos.left;
+      resizeRef.current = {
+        active: true,
+        startX: e.clientX,
+        startWidth: panelWidth,
+        startLeft: currentLeft,
+      };
+      const onMove = (moveEvent: MouseEvent) => {
+        const dx = resizeRef.current.startX - moveEvent.clientX;
+        const maxW = Math.min(PANEL_WIDTH, window.innerWidth - MARGIN * 2);
+        const nextWidth = Math.max(MIN_PANEL_WIDTH, Math.min(maxW, resizeRef.current.startWidth + dx));
+        const widthDelta = nextWidth - resizeRef.current.startWidth;
+        setPanelWidth(nextWidth);
+        setPanelPos((prev) => {
+          const p = prev ?? defaultPos;
+          return { ...p, left: Math.max(0, resizeRef.current.startLeft - widthDelta) };
+        });
+      };
+      const onUp = () => {
+        resizeRef.current.active = false;
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+      };
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    },
+    [panelWidth, panelPos, getDefaultPanelPosition],
+  );
+
+  const onResizeTopMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const defaultPos = getDefaultPanelPosition();
+      const curTop = panelPos?.top ?? defaultPos.top;
+      const curH = panelRef.current?.offsetHeight ?? panelMaxHeight;
+      setPanelMaxH(curH);
+      topResizeRef.current = { startY: e.clientY, startH: curH, startTop: curTop };
+      setResizingFrom("top");
+      const MIN_H = 200;
+      const onMove = (me: MouseEvent) => {
+        const dy = me.clientY - topResizeRef.current.startY;
+        const nextH = Math.max(MIN_H, topResizeRef.current.startH - dy);
+        setPanelMaxH(nextH);
+        const shrunk = topResizeRef.current.startH - nextH;
+        setPanelPos((p) => {
+          const base = p ?? defaultPos;
+          return { ...base, top: Math.max(0, topResizeRef.current.startTop + shrunk) };
+        });
+      };
+      const onUp = () => {
+        setResizingFrom(null);
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+      };
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    },
+    [panelPos, getDefaultPanelPosition, panelMaxHeight],
+  );
+
+  const onResizeBottomMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const curH = panelRef.current?.offsetHeight ?? panelMaxHeight;
+      setPanelMaxH(curH);
+      bottomResizeRef.current = { startY: e.clientY, startH: curH };
+      setResizingFrom("bottom");
+      const MIN_H = 200;
+      const onMove = (me: MouseEvent) => {
+        const dy = bottomResizeRef.current.startY - me.clientY;
+        const nextH = Math.max(MIN_H, bottomResizeRef.current.startH - dy);
+        setPanelMaxH(nextH);
+      };
+      const onUp = () => {
+        setResizingFrom(null);
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+      };
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    },
+    [panelMaxHeight],
   );
 
   if (logoHidden) return null;
@@ -539,9 +661,9 @@ function FloatingMemoryPanelInner() {
                 left: pos.left,
                 top: pos.top,
                 zIndex: 2147483647,
-                width: panelMaxWidth,
-                maxWidth: panelMaxWidth,
-                maxHeight: panelMaxHeight,
+                width: panelWidth,
+                maxWidth: panelWidth,
+                maxHeight: effectiveMaxH,
                 backgroundColor:
                   theme === "dark"
                     ? "rgba(28,28,30,0.94)"
@@ -560,6 +682,46 @@ function FloatingMemoryPanelInner() {
                   "background-color 0.25s ease, box-shadow 0.25s ease",
               }}
             >
+              {/* Resize handle (left edge) */}
+              <div
+                onMouseDown={onResizeMouseDown}
+                style={{
+                  position: "absolute",
+                  left: 0,
+                  top: 0,
+                  bottom: 0,
+                  width: 8,
+                  cursor: "ew-resize",
+                  zIndex: 20,
+                }}
+              />
+              {/* Resize handle (top edge) */}
+              <div
+                onMouseDown={onResizeTopMouseDown}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  height: 8,
+                  cursor: "ns-resize",
+                  zIndex: 20,
+                }}
+              />
+              {/* Resize handle (bottom edge) */}
+              <div
+                onMouseDown={onResizeBottomMouseDown}
+                style={{
+                  position: "absolute",
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  height: 8,
+                  cursor: "ns-resize",
+                  zIndex: 20,
+                }}
+              />
+
               {/* Header */}
               <div
                 role="presentation"
@@ -627,7 +789,7 @@ function FloatingMemoryPanelInner() {
                     >
                       {APP_DISPLAY_NAME}
                     </span>
-                    <span
+                    {!narrow && (<span
                       title={t.autoSaveMemory}
                       style={{
                         borderRadius: 999,
@@ -644,6 +806,7 @@ function FloatingMemoryPanelInner() {
                     >
                       {captureMode === "auto" ? t.captureModeAuto : t.captureModeManual}
                     </span>
+                    )}
                   </div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -687,7 +850,7 @@ function FloatingMemoryPanelInner() {
                   >
                     <GearIcon />
                   </button>
-                  <select
+                  {!compact && (<select
                     value={lang}
                     onChange={(e) => setLang(e.target.value as LangCode)}
                     style={{
@@ -710,7 +873,7 @@ function FloatingMemoryPanelInner() {
                         {langNames[code]}
                       </option>
                     ))}
-                  </select>
+                  </select>)}
                   <button
                     type="button"
                     aria-label="Close panel"
@@ -754,23 +917,23 @@ function FloatingMemoryPanelInner() {
                 <div
                   style={{
                     display: "flex",
-                    width: panelMaxWidth * 2,
+                    width: panelWidth * 2,
                     height: "100%",
                     transform:
                       panelView === "menu"
                         ? "translateX(0)"
-                        : `translateX(-${panelMaxWidth}px)`,
+                        : `translateX(-${panelWidth}px)`,
                     transition: "transform 0.28s cubic-bezier(0.4, 0, 0.2, 1)",
                   }}
                 >
                   {/* Slot 0: Menu */}
                   <div
                     style={{
-                      width: panelMaxWidth,
+                      width: panelWidth,
                       flexShrink: 0,
-                      overflowY: "auto",
-                      overflowX: "hidden",
-                      maxHeight: panelMaxHeight - 52,
+                      overflow: "hidden",
+                      display: "flex",
+                      flexDirection: "column",
                       opacity: panelView === "menu" ? 1 : 0,
                       transition:
                         "opacity 0.22s ease, background-color 0.25s ease, color 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease",
@@ -782,19 +945,43 @@ function FloatingMemoryPanelInner() {
                         display: "flex",
                         flexDirection: "column",
                         gap: 10,
+                        flex: 1,
+                        minHeight: 0,
                       }}
                     >
-                      <MemoryMenuContent
-                        onOpenGraph={openGraph}
-                        onOpenFolder={() => setPanelView("folder")}
-                      />
+                      <div style={{ flexShrink: resizingFrom === "bottom" ? 0 : 1, minHeight: 0, overflow: "hidden" }}>
+                        <FavoritePromptsSection />
+                      </div>
+                      <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", gap: 10 }}>
+                        <button
+                          type="button"
+                          style={{ ...S.menuBtn, backgroundColor: tk.btnBg, borderColor: tk.border, color: tk.text }}
+                          onClick={() => setPanelView("folder")}
+                        >
+                          <span style={S.iconWrap}><FolderIcon /></span>
+                          <span>{t.promptsFolder}</span>
+                        </button>
+                        <div style={{ ...S.divider, backgroundColor: tk.separator }} />
+                        <button
+                          type="button"
+                          style={{ ...S.menuBtn, backgroundColor: tk.btnBg, borderColor: tk.border, color: tk.text }}
+                          onClick={openGraph}
+                        >
+                          <span style={S.iconWrap}><NetworkIcon /></span>
+                          <span>{t.memoryGraph}</span>
+                        </button>
+                      </div>
+                      <div style={{ flexShrink: resizingFrom === "top" ? 0 : 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column", gap: 10 }}>
+                        <ImportView />
+                        <ExportView />
+                      </div>
                     </div>
                   </div>
 
                   {/* Slot 1: Detail views — all rendered, visibility toggled to prevent flash during slide-back */}
                   <div
                     style={{
-                      width: panelMaxWidth,
+                      width: panelWidth,
                       flexShrink: 0,
                       position: "relative",
                       maxHeight: panelMaxHeight - 52,
@@ -813,7 +1000,7 @@ function FloatingMemoryPanelInner() {
                     >
                       <FolderView
                         onBack={() => setPanelView("menu")}
-                        width={panelMaxWidth}
+                        width={panelWidth}
                       />
                     </div>
                     <div
@@ -826,6 +1013,7 @@ function FloatingMemoryPanelInner() {
                     >
                       <SettingsView
                         onBack={() => setPanelView("menu")}
+                        width={panelWidth}
                       />
                     </div>
                   </div>
