@@ -31,13 +31,22 @@ function indexChunk(chunk: MemoryRecord): void {
 /**
  * Persist one logical record (auto-chunked). Returns whether it was added,
  * updated (existing id, changed content) or skipped (existing id, same text).
+ *
+ * Long content is stored as chunk records ONLY (ids `<id>-c0`, `<id>-c1` …),
+ * so "existing" must be checked against both the direct record and the chunk
+ * records — otherwise content updates on long messages would silently fail.
  */
 export async function persistRecordWithChunks(
   record: MemoryRecord,
 ): Promise<PersistResult> {
   const existing = await db.memories.get(record.id);
+  const existingChunks = existing
+    ? []
+    : await db.memories.where("parentId").equals(record.id).toArray();
+  const hasExisting = !!existing && !existing.isDeleted;
+  const hasChunks = existingChunks.length > 0;
 
-  if (!existing || existing.isDeleted) {
+  if (!hasExisting && !hasChunks) {
     for (const chunk of expandToChunks(record)) {
       const id = await safeAddRecord(chunk);
       if (id) {
@@ -48,10 +57,48 @@ export async function persistRecordWithChunks(
     return "added";
   }
 
-  if (existing.content === record.content) return "skipped";
+  // Compare against the currently stored logical text.
+  const storedLogical = hasExisting
+    ? existing.content
+    : [...existingChunks]
+        .sort((a, b) => (a.chunkIndex ?? 0) - (b.chunkIndex ?? 0))
+        .map((c) => c.content)
+        .join("");
+  if (storedLogical === record.content) return "skipped";
 
   // ── Content changed → replace in place ───────────────────────────────────
   const chunks = expandToChunks(record);
+  const isLong = chunks.length > 1;
+
+  // Drop stale chunk records and (for long content) any direct record, so the
+  // graph never shows a duplicate of the merged chunks.
+  const staleChunkIds = (existingChunks.length > 0 ? existingChunks : await db.memories.where("parentId").equals(record.id).toArray()).map((c) => c.id);
+  await db.memories.where("parentId").equals(record.id).delete();
+  if (isLong && hasExisting) {
+    staleChunkIds.push(existing.id);
+    await db.memories.delete(existing.id);
+  }
+  for (const staleId of staleChunkIds) {
+    try {
+      miniSearch.remove(staleId);
+    } catch {
+      /* not indexed */
+    }
+  }
+
+  if (isLong) {
+    // Long content: (re-)add the chunk records.
+    for (const chunk of chunks) {
+      const id = await safeAddRecord(chunk);
+      if (id) {
+        indexChunk(chunk);
+        queueEmbedding(chunk);
+      }
+    }
+    return "updated";
+  }
+
+  // Short content: single record under its own id.
   const patch: Partial<MemoryRecord> = {
     content: record.content,
     timestamp: record.timestamp,
@@ -61,39 +108,18 @@ export async function persistRecordWithChunks(
   };
   if (record.model) patch.model = record.model;
   if (record.conversationTitle) patch.conversationTitle = record.conversationTitle;
-
-  if (chunks.length === 1) {
+  if (hasExisting) {
     await db.memories.update(record.id, patch);
-    try {
-      miniSearch.remove(record.id);
-    } catch {
-      /* not indexed */
-    }
-    indexChunk(chunks[0]);
-    queueEmbedding(chunks[0]);
-    return "updated";
+  } else {
+    await db.memories.add({ ...record, hasEmbedding: 0 } as MemoryRecord);
   }
-
-  // Long content: replace every chunk record under the parent id.
-  const oldChunks = await db.memories
-    .where("parentId")
-    .equals(record.id)
-    .toArray();
-  for (const old of oldChunks) {
-    try {
-      miniSearch.remove(old.id);
-    } catch {
-      /* not indexed */
-    }
+  try {
+    miniSearch.remove(record.id);
+  } catch {
+    /* not indexed */
   }
-  await db.memories.where("parentId").equals(record.id).delete();
-  for (const chunk of chunks) {
-    const id = await safeAddRecord(chunk);
-    if (id) {
-      indexChunk(chunk);
-      queueEmbedding(chunk);
-    }
-  }
+  indexChunk({ ...record, hasEmbedding: 0 });
+  queueEmbedding({ ...record, hasEmbedding: 0 });
   return "updated";
 }
 

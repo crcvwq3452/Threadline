@@ -113,4 +113,40 @@ describe("parseChatGPTConversationDetail", () => {
       parseChatGPTConversationDetail({ id: "x", mapping: {} }, "u"),
     ).toEqual([]);
   });
+
+  it("parses the real backend-api shape (no top-level id, uses conversation_id)", () => {
+    // The live /backend-api/conversation/<id> response carries conversation_id
+    // but no top-level `id` — the original parser returned [] for this shape,
+    // which made every history sync silently produce zero records.
+    const conv: Record<string, unknown> = {
+      conversation_id: CONVERSATION_ID,
+      title: "Real Shape",
+      create_time: 1000,
+      mapping: {
+        a: node("a", "user", "Q1", 1000, null),
+        b: node("b", "assistant", "A1", 2000, "a"),
+      },
+    };
+    const records = parseChatGPTConversationDetail(
+      conv as never,
+      "https://chatgpt.com/c/x",
+    );
+    expect(records).toHaveLength(2);
+    expect(records[0].sessionId).toBe(`openai:${CONVERSATION_ID}`);
+    expect(records[0].conversationTitle).toBe("Real Shape");
+  });
+
+  it("uses the URL override when the response carries neither id nor conversation_id", () => {
+    const conv = makeConversation({
+      a: node("a", "user", "Q1", 1000, null),
+    });
+    delete (conv as { id?: string }).id;
+    const records = parseChatGPTConversationDetail(
+      conv,
+      "https://chatgpt.com/c/x",
+      CONVERSATION_ID,
+    );
+    expect(records).toHaveLength(1);
+    expect(records[0].sessionId).toBe(`openai:${CONVERSATION_ID}`);
+  });
 });
