@@ -10,6 +10,7 @@ import type {
 } from "../types/memory";
 import { normalizeContent } from "./adapters/base";
 import { isTransientAssistantMessage } from "../utils/transient-assistant";
+import { CHUNK_SIZE_CHARS } from "./chunking";
 
 export class MemoryDatabase extends Dexie {
   memories!: Table<MemoryRecord, string>;
@@ -488,6 +489,67 @@ export class MemoryDatabase extends Dexie {
         Object.assign(record, patch);
         if (hasMetadata) record.metadata = { ...(record.metadata ?? {}), ...metadata };
       });
+  }
+
+  /**
+   * Replaces the stored text of a DOM-sourced message when a later scan sees
+   * a fuller/edited version (partial streaming renders, edits). Deletes stale
+   * chunk records so the re-added chunks stay in sync, and clears the
+   * embedding so it is regenerated for the new text.
+   *
+   * Returns the ids that were removed from the search index (caller should
+   * miniSearch.remove() them and re-enqueue the record).
+   */
+  async replaceDomMessageContent(
+    messageId: string,
+    content: string,
+  ): Promise<{ changed: boolean; removedIndexIds: string[] }> {
+    const direct = await this.memories.get(messageId);
+    const chunks = await this.memories
+      .where("parentId")
+      .equals(messageId)
+      .toArray();
+    if ((!direct || direct.isDeleted) && chunks.length === 0) {
+      return { changed: false, removedIndexIds: [] };
+    }
+
+    const existingLogical = direct
+      ? direct.content
+      : [...chunks]
+          .sort((a, b) => (a.chunkIndex ?? 0) - (b.chunkIndex ?? 0))
+          .map((c) => c.content)
+          .join("");
+    if (existingLogical === content) return { changed: false, removedIndexIds: [] };
+    // A shorter prefix of the stored text is a partial streaming render —
+    // keep the longer, more complete version.
+    if (
+      content.length < existingLogical.length &&
+      existingLogical.startsWith(content)
+    ) {
+      return { changed: false, removedIndexIds: [] };
+    }
+
+    const removedIndexIds = chunks.map((c) => c.id);
+    await this.memories.where("parentId").equals(messageId).delete();
+
+    const isLong = content.length > CHUNK_SIZE_CHARS;
+    if (direct) {
+      if (isLong) {
+        // Long content is stored as chunk records only — drop the parent so
+        // the graph doesn't show a duplicate of the merged chunks.
+        removedIndexIds.push(direct.id);
+        await this.memories.delete(direct.id);
+      } else {
+        await this.memories.update(messageId, {
+          content,
+          isPartial: false,
+          hasEmbedding: 0,
+          embedding: undefined,
+        });
+        removedIndexIds.push(messageId);
+      }
+    }
+    return { changed: true, removedIndexIds };
   }
 
   /**
