@@ -9,10 +9,10 @@ overrides:
 
 patchedDependencies:
   math-intrinsics@1.1.0:
-    hash: 455ecczo547wqqekwwllnvasse
+    hash: 2d7a95a401daf95bcc02212d6435ccfb4f634026649e006e844128e3dfa82199
     path: patches/math-intrinsics@1.1.0.patch
   vfile@6.0.2:
-    hash: tnswllc4f6bb5axnaovm76mcry
+    hash: 716d4b045e2e9b6feb07f9f5e173bc4c1081fedbc0ca9af4bb78047cbeabf402
     path: patches/vfile@6.0.2.patch
 
 importers:
@@ -6858,7 +6858,7 @@ snapshots:
       gopd: 1.2.0
       has-symbols: 1.1.0
       hasown: 2.0.4
-      math-intrinsics: 1.1.0(patch_hash=455ecczo547wqqekwwllnvasse)
+      math-intrinsics: 1.1.0(patch_hash=2d7a95a401daf95bcc02212d6435ccfb4f634026649e006e844128e3dfa82199)
 
   get-port@7.1.0: {}
 
@@ -7317,7 +7317,7 @@ snapshots:
 
   markdown-table@3.0.4: {}
 
-  math-intrinsics@1.1.0(patch_hash=455ecczo547wqqekwwllnvasse): {}
+  math-intrinsics@1.1.0(patch_hash=2d7a95a401daf95bcc02212d6435ccfb4f634026649e006e844128e3dfa82199): {}
 
   mdast-util-find-and-replace@3.0.2:
     dependencies:
@@ -7454,7 +7454,7 @@ snapshots:
       trim-lines: 3.0.1
       unist-util-position: 5.0.0
       unist-util-visit: 5.1.0
-      vfile: 6.0.2(patch_hash=tnswllc4f6bb5axnaovm76mcry)
+      vfile: 6.0.2(patch_hash=716d4b045e2e9b6feb07f9f5e173bc4c1081fedbc0ca9af4bb78047cbeabf402)
 
   mdast-util-to-markdown@2.1.2:
     dependencies:
@@ -8090,7 +8090,7 @@ snapshots:
       remark-rehype: 11.1.2
       unified: 11.0.5
       unist-util-visit: 5.1.0
-      vfile: 6.0.2(patch_hash=tnswllc4f6bb5axnaovm76mcry)
+      vfile: 6.0.2(patch_hash=716d4b045e2e9b6feb07f9f5e173bc4c1081fedbc0ca9af4bb78047cbeabf402)
     transitivePeerDependencies:
       - supports-color
 
@@ -8150,7 +8150,7 @@ snapshots:
       '@types/mdast': 4.0.4
       mdast-util-to-hast: 13.2.1
       unified: 11.0.5
-      vfile: 6.0.2(patch_hash=tnswllc4f6bb5axnaovm76mcry)
+      vfile: 6.0.2(patch_hash=716d4b045e2e9b6feb07f9f5e173bc4c1081fedbc0ca9af4bb78047cbeabf402)
 
   remark-stringify@11.0.0:
     dependencies:
@@ -8605,7 +8605,7 @@ snapshots:
       extend: 3.0.2
       is-plain-obj: 4.1.0
       trough: 2.2.0
-      vfile: 6.0.2(patch_hash=tnswllc4f6bb5axnaovm76mcry)
+      vfile: 6.0.2(patch_hash=716d4b045e2e9b6feb07f9f5e173bc4c1081fedbc0ca9af4bb78047cbeabf402)
 
   unique-string@3.0.0:
     dependencies:
@@ -8662,7 +8662,7 @@ snapshots:
       '@types/unist': 3.0.3
       unist-util-stringify-position: 4.0.0
 
-  vfile@6.0.2(patch_hash=tnswllc4f6bb5axnaovm76mcry):
+  vfile@6.0.2(patch_hash=716d4b045e2e9b6feb07f9f5e173bc4c1081fedbc0ca9af4bb78047cbeabf402):
     dependencies:
       '@types/unist': 3.0.3
       unist-util-stringify-position: 4.0.0

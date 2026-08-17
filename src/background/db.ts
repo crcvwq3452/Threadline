@@ -497,20 +497,20 @@ export class MemoryDatabase extends Dexie {
    * chunk records so the re-added chunks stay in sync, and clears the
    * embedding so it is regenerated for the new text.
    *
-   * Returns the ids that were removed from the search index (caller should
-   * miniSearch.remove() them and re-enqueue the record).
+   * Returns the removed records (caller should miniSearch.remove() them and
+   * re-enqueue the message).
    */
   async replaceDomMessageContent(
     messageId: string,
     content: string,
-  ): Promise<{ changed: boolean; removedIndexIds: string[] }> {
+  ): Promise<{ changed: boolean; removedRecords: MemoryRecord[] }> {
     const direct = await this.memories.get(messageId);
     const chunks = await this.memories
       .where("parentId")
       .equals(messageId)
       .toArray();
     if ((!direct || direct.isDeleted) && chunks.length === 0) {
-      return { changed: false, removedIndexIds: [] };
+      return { changed: false, removedRecords: [] };
     }
 
     const existingLogical = direct
@@ -519,17 +519,17 @@ export class MemoryDatabase extends Dexie {
           .sort((a, b) => (a.chunkIndex ?? 0) - (b.chunkIndex ?? 0))
           .map((c) => c.content)
           .join("");
-    if (existingLogical === content) return { changed: false, removedIndexIds: [] };
+    if (existingLogical === content) return { changed: false, removedRecords: [] };
     // A shorter prefix of the stored text is a partial streaming render —
     // keep the longer, more complete version.
     if (
       content.length < existingLogical.length &&
       existingLogical.startsWith(content)
     ) {
-      return { changed: false, removedIndexIds: [] };
+      return { changed: false, removedRecords: [] };
     }
 
-    const removedIndexIds = chunks.map((c) => c.id);
+    const removedRecords = [...chunks];
     await this.memories.where("parentId").equals(messageId).delete();
 
     const isLong = content.length > CHUNK_SIZE_CHARS;
@@ -537,7 +537,7 @@ export class MemoryDatabase extends Dexie {
       if (isLong) {
         // Long content is stored as chunk records only — drop the parent so
         // the graph doesn't show a duplicate of the merged chunks.
-        removedIndexIds.push(direct.id);
+        removedRecords.push(direct);
         await this.memories.delete(direct.id);
       } else {
         await this.memories.update(messageId, {
@@ -546,10 +546,10 @@ export class MemoryDatabase extends Dexie {
           hasEmbedding: 0,
           embedding: undefined,
         });
-        removedIndexIds.push(messageId);
+        removedRecords.push({ ...direct, content });
       }
     }
-    return { changed: true, removedIndexIds };
+    return { changed: true, removedRecords };
   }
 
   /**

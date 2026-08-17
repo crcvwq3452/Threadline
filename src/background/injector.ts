@@ -1166,7 +1166,9 @@ export function mainWorldInterceptor(): void {
                   }
                   // Some payloads ship the full content array on the `add` event
                   // (no subsequent patch events). Keep it as a fallback.
-                  const parts = msg?.content?.["parts"];
+                  const parts = (msg?.content as
+                    | Record<string, unknown>
+                    | undefined)?.["parts"];
                   if (Array.isArray(parts)) {
                     for (const part of parts) {
                       if (typeof part === "string" && part.trim()) {
@@ -1205,7 +1207,8 @@ export function mainWorldInterceptor(): void {
                 } else if (
                   parsed["o"] === "replace" &&
                   parsed["v"] &&
-                  typeof parsed["v"] === "object"
+                  typeof parsed["v"] === "object" &&
+                  !Array.isArray(parsed["v"])
                 ) {
                   // { parts: [...] } whole-content replace
                   const parts = (parsed["v"] as Record<string, unknown>)["parts"];

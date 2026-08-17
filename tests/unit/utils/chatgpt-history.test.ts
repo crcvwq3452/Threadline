@@ -19,7 +19,10 @@ function node(
       create_time: createTime,
       status,
       content: { content_type: "text", parts: [text] },
-      metadata: { model_slug: role === "assistant" ? "gpt-4o" : undefined },
+      metadata:
+        role === "assistant"
+          ? { model_slug: "gpt-4o" }
+          : (null as { model_slug?: string } | null),
     },
     parent,
     children: [],
@@ -100,7 +103,7 @@ describe("parseChatGPTConversationDetail", () => {
         },
         parent: "a",
         children: [],
-      },
+      } as unknown as ReturnType<typeof node>,
     });
     const records = parseChatGPTConversationDetail(conv, "https://chatgpt.com/c/x");
     expect(records.map((r) => r.id)).toEqual(["a", "d"]);

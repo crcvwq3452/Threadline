@@ -52,7 +52,7 @@ import type {
   OpenMemoryGraphResponse,
 } from "../types/messages";
 import { handleSearchMemories, hydrateSearchIndex, miniSearch } from "./search";
-import type { MemoryRecord } from "../types/memory";
+import type { MemoryRecord, MemorySessionSummary } from "../types/memory";
 import {
   FAVORITE_PROMPTS_KEY,
   FOLDERS_STORAGE_KEY,

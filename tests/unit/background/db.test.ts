@@ -258,7 +258,7 @@ describe('MemoryDatabase.replaceDomMessageContent — truncated-DOM regression',
     }
     const result = await db.replaceDomMessageContent('dom-z', 'B'.repeat(600))
     expect(result.changed).toBe(true)
-    expect(result.removedIndexIds.sort()).toEqual(['dom-z-c0', 'dom-z-c1'])
+    expect(result.removedRecords.map((r) => r.id).sort()).toEqual(['dom-z-c0', 'dom-z-c1'])
     const chunks = await db.memories.where('parentId').equals('dom-z').toArray()
     expect(chunks).toHaveLength(0)
   })

@@ -72,15 +72,18 @@ export async function persistRecordWithChunks(
 
   // Drop stale chunk records and (for long content) any direct record, so the
   // graph never shows a duplicate of the merged chunks.
-  const staleChunkIds = (existingChunks.length > 0 ? existingChunks : await db.memories.where("parentId").equals(record.id).toArray()).map((c) => c.id);
+  const staleRecords =
+    existingChunks.length > 0
+      ? existingChunks
+      : await db.memories.where("parentId").equals(record.id).toArray();
   await db.memories.where("parentId").equals(record.id).delete();
   if (isLong && hasExisting) {
-    staleChunkIds.push(existing.id);
+    staleRecords.push(existing);
     await db.memories.delete(existing.id);
   }
-  for (const staleId of staleChunkIds) {
+  for (const stale of staleRecords) {
     try {
-      miniSearch.remove(staleId);
+      miniSearch.remove(stale);
     } catch {
       /* not indexed */
     }
@@ -114,7 +117,7 @@ export async function persistRecordWithChunks(
     await db.memories.add({ ...record, hasEmbedding: 0 } as MemoryRecord);
   }
   try {
-    miniSearch.remove(record.id);
+    miniSearch.remove({ ...record, hasEmbedding: 0 });
   } catch {
     /* not indexed */
   }

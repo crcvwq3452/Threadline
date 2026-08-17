@@ -440,9 +440,9 @@ export async function handleDomSync(
   for (const msg of messages) {
     const result = await db.replaceDomMessageContent(msg.messageId, msg.content);
     if (!result.changed) continue;
-    for (const id of result.removedIndexIds) {
+    for (const removed of result.removedRecords) {
       try {
-        miniSearch.remove(id);
+        miniSearch.remove(removed);
       } catch {
         /* not indexed */
       }
