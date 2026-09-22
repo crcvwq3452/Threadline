@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   validate:
@@ -405,3 +405,33 @@ jobs:
           })
           NODE
           xvfb-run -a node /tmp/recovery-browser-e2e.cjs
+
+
+      - name: Package validated Chrome MV3 extension
+        shell: bash
+        working-directory: target
+        run: |
+          rm -f /tmp/threadline-recovery-v0.14-chrome-mv3.zip
+          cd build/chrome-mv3-prod
+          zip -qr /tmp/threadline-recovery-v0.14-chrome-mv3.zip .
+          sha256sum /tmp/threadline-recovery-v0.14-chrome-mv3.zip
+
+      - name: Upload validated Chrome MV3 extension
+        uses: actions/upload-artifact@v4
+        with:
+          name: threadline-recovery-v0.14-chrome-mv3
+          path: /tmp/threadline-recovery-v0.14-chrome-mv3.zip
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish validated patched source branch
+        shell: bash
+        working-directory: target
+        run: |
+          rm -rf .threadline-recovery-preoverlay-backup
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C recovery-v0.14-applied
+          git add -A
+          git commit -m "feat: apply validated recovery v0.14"
+          git push --force origin HEAD:refs/heads/recovery-v0.14-applied
