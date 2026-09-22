@@ -274,13 +274,13 @@ jobs:
             page.on('console', (m) => {
               if (m.type() === 'error') errors.push(`host console: ${m.text()}`)
             })
-            await page.goto('https://example.com/', { waitUntil: 'domcontentloaded' })
+            await page.goto('https://chatgpt.com/', { waitUntil: 'domcontentloaded', timeout: 30000 })
 
             const panelOpened = await worker.evaluate(async () => {
               const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
               for (let attempt = 0; attempt < 30; attempt++) {
                 const tabs = await chrome.tabs.query({})
-                const tab = tabs.find((t) => (t.url || '').startsWith('https://example.com/'))
+                const tab = tabs.find((t) => (t.url || '').startsWith('https://chatgpt.com/'))
                 if (tab?.id) {
                   try {
                     await chrome.tabs.sendMessage(tab.id, { type: 'OPEN_MEMORY_PANEL' })
