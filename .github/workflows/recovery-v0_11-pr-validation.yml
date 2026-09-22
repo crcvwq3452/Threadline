@@ -305,7 +305,12 @@ jobs:
             await importToggle.waitFor({ state: 'visible', timeout: 15000 })
             await importToggle.click()
 
-            const chatgptButton = panel.getByRole('button', { name: /ChatGPT/i }).first()
+            const buttonLabels = await panel.getByRole('button').allTextContents()
+            console.log('E2E panel buttons:', JSON.stringify(buttonLabels))
+            const chatgptButton = panel.getByRole('button', {
+              name: 'ChatGPT (conversations.json)',
+              exact: true,
+            })
             await chatgptButton.waitFor({ state: 'visible', timeout: 10000 })
             await chatgptButton.click({ noWaitAfter: true })
 
@@ -327,7 +332,7 @@ jobs:
               /Successfully imported \d+ .* from ChatGPT|ChatGPT: imported \d+ new/i,
             ).first()
             const failureStatus = panel.getByText(
-              /Import from ChatGPT failed|ChatGPT import failed|failed to import.*ChatGPT/i,
+              /ChatGPT.*import failed|failed to import.*ChatGPT/i,
             ).first()
             const outcome = await Promise.race([
               successStatus.waitFor({ state: 'visible', timeout: 30000 }).then(() => 'success'),
