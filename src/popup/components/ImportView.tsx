@@ -18,6 +18,15 @@ import { isChatGPTArchiveZip, providerImportAccept } from '../../recovery/import
 type Status = { type: 'idle' } | { type: 'success'; msg: string } | { type: 'error'; msg: string }
 interface ImportViewProps { onImported?: () => void }
 
+const LAST_IMPORT_REPORT_KEY = 'threadlineLastImportReport'
+
+interface LastImportReport {
+  status: 'success' | 'error'
+  message: string
+  at: string
+}
+
+
 export function ImportView({ onImported }: ImportViewProps) {
   const [status, setStatus] = useState<Status>({ type: 'idle' })
   const [importing, setImporting] = useState(false)
@@ -33,6 +42,20 @@ export function ImportView({ onImported }: ImportViewProps) {
   const { t } = useTranslation()
   const { theme } = useTheme()
   const tk = getThemeTokens(theme)
+
+  useEffect(() => {
+    void chrome.storage.local.get([LAST_IMPORT_REPORT_KEY]).then((stored) => {
+      const report = stored[LAST_IMPORT_REPORT_KEY] as LastImportReport | undefined
+      if (!report?.message) return
+      setStatus({ type: report.status, msg: report.message })
+    })
+  }, [])
+
+  async function persistImportReport(status: 'success' | 'error', message: string) {
+    const report: LastImportReport = { status, message, at: new Date().toISOString() }
+    await chrome.storage.local.set({ [LAST_IMPORT_REPORT_KEY]: report })
+    setStatus({ type: status, msg: message })
+  }
 
   // Delay close menu to avoid mousedown event swallowing the button click
   useEffect(() => {
@@ -101,12 +124,14 @@ export function ImportView({ onImported }: ImportViewProps) {
             ...(Array.isArray(data.folders) && data.folders.length > 0 && { folders: data.folders }),
           },
         )
-        setStatus({ type: 'success', msg: t.importSuccess(result.count) })
-        setTimeout(() => setStatus({ type: 'idle' }), 3000)
+        await persistImportReport(
+          'success',
+          `Threadline backup import complete — ${result.count} records stored; ${result.skipped} skipped.`,
+        )
         setMenuOpen(false)
         onImported?.()
       } catch (err) {
-        setStatus({ type: 'error', msg: t.importFailed((err as Error).message ?? String(err)) })
+        await persistImportReport('error', t.importFailed((err as Error).message ?? String(err)))
       } finally {
         setImporting(false)
         e.target.value = ''
@@ -128,17 +153,18 @@ export function ImportView({ onImported }: ImportViewProps) {
           file,
           async (message) => sendImportMessageToBackground(message),
         )
-        const successMsg = result.sentRecords === 0 && result.skippedRecords > 0
-          ? t.importProviderAlreadyImported(importer.displayName)
-          : result.skippedRecords > 0
-            ? t.importProviderSuccessWithSkipped(importer.displayName, result.sentRecords, result.skippedRecords)
-            : t.importProviderSuccess(importer.displayName, result.sentRecords)
-        setStatus({ type: 'success', msg: successMsg })
-        setTimeout(() => setStatus({ type: 'idle' }), 3000)
+        const successMsg =
+          `ChatGPT ZIP import complete — ${result.jsonEntries} JSON entries scanned; ` +
+          `${result.conversations} conversations discovered; ${result.winners} canonical snapshots; ` +
+          `${result.residualSnapshots} residual snapshots; ${result.projectedRecords} records projected; ` +
+          `${result.sentRecords} records stored; ${result.skippedRecords} skipped; ` +
+          `${result.invalidJsonEntries} invalid JSON; ${result.unsupportedJsonEntries} unsupported JSON; ` +
+          `${result.batches} batches.`
+        await persistImportReport('success', successMsg)
         setMenuOpen(false)
         onImported?.()
       } catch (err) {
-        setStatus({ type: 'error', msg: t.importProviderFailed(importer.displayName, (err as Error).message ?? String(err)) })
+        await persistImportReport('error', t.importProviderFailed(importer.displayName, (err as Error).message ?? String(err)))
       } finally {
         setActiveImporterId(null)
         e.target.value = ''
@@ -162,12 +188,14 @@ export function ImportView({ onImported }: ImportViewProps) {
         } else {
           successMsg = t.importProviderSuccess(importer.displayName, count)
         }
-        setStatus({ type: 'success', msg: successMsg })
-        setTimeout(() => setStatus({ type: 'idle' }), 3000)
+        await persistImportReport(
+          'success',
+          `${successMsg} Stored: ${count}; skipped: ${skipped}.`,
+        )
         setMenuOpen(false)
         onImported?.()
       } catch (err) {
-        setStatus({ type: 'error', msg: t.importProviderFailed(importer.displayName, (err as Error).message ?? String(err)) })
+        await persistImportReport('error', t.importProviderFailed(importer.displayName, (err as Error).message ?? String(err)))
       } finally {
         setActiveImporterId(null)
         e.target.value = ''
