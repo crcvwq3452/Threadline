@@ -261,7 +261,7 @@ jobs:
             await composer.fill('SEMANTIC_MEMORY_SENTINEL')
             const recall=host.locator('#ai-memory-recall-btn')
             await recall.waitFor({state:'visible',timeout:20000})
-            await recall.click()
+            await recall.evaluate((el)=>{ if(!(el instanceof HTMLButtonElement)) throw new Error('Recall button is not a button'); el.click() })
 
             const recallRoot=host.locator('#ai-memory-recall-results-root')
             await recallRoot.waitFor({state:'attached',timeout:90000})
