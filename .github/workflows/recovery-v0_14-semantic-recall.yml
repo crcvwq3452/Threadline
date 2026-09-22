@@ -206,8 +206,46 @@ jobs:
               throw new Error('Semantic-only query did not recover embedded memory')
             }
 
-            // Actual ChatGPT Recall button -> results shadow DOM -> selection -> composer injection.
-            const composer=host.locator('#prompt-textarea')
+            // Actual Recall content script. CI's logged-out ChatGPT page may not render a
+            // composer, so use the live composer when present; otherwise mount the same
+            // production hooks (#prompt-textarea + composer speech container) and let
+            // Threadline's real MutationObserver inject the button.
+            let composer=host.locator('#prompt-textarea')
+            let liveComposer=false
+            if(await composer.count()){
+              try { liveComposer=await composer.first().isVisible() } catch {}
+            }
+            if(!liveComposer){
+              await host.evaluate(()=>{
+                document.getElementById('prompt-textarea')?.remove()
+                document.getElementById('threadline-ci-composer-fixture')?.remove()
+                const shell=document.createElement('div')
+                shell.id='threadline-ci-composer-fixture'
+                shell.style.cssText='position:fixed;left:100px;bottom:100px;width:700px;z-index:999999;background:white;padding:12px'
+                const editor=document.createElement('div')
+                editor.id='prompt-textarea'
+                editor.contentEditable='true'
+                editor.setAttribute('role','textbox')
+                editor.style.cssText='min-height:80px;border:1px solid #999;color:#111'
+                const toolbar=document.createElement('div')
+                toolbar.style.cssText='display:flex;gap:8px'
+                const speech=document.createElement('div')
+                speech.setAttribute('data-testid','composer-speech-button-container')
+                const voice=document.createElement('button')
+                voice.type='button'
+                voice.setAttribute('aria-label','Start Voice')
+                voice.textContent='Voice'
+                speech.appendChild(voice)
+                toolbar.appendChild(speech)
+                shell.append(editor,toolbar)
+                document.body.appendChild(shell)
+              })
+              console.log('RECALL_COMPOSER_MODE synthetic-production-hooks')
+              composer=host.locator('#prompt-textarea')
+            } else {
+              console.log('RECALL_COMPOSER_MODE live-chatgpt')
+              composer=composer.first()
+            }
             await composer.waitFor({state:'visible',timeout:20000})
             await composer.fill('SEMANTIC_MEMORY_SENTINEL')
             const recall=host.locator('#ai-memory-recall-btn')
