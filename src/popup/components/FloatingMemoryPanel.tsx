@@ -730,6 +730,7 @@ function FloatingMemoryPanelInner() {
                 zIndex: 2147483647,
                 width: panelWidth,
                 maxWidth: panelWidth,
+                height: effectiveMaxH,
                 maxHeight: effectiveMaxH,
                 backgroundColor:
                   theme === "dark"
