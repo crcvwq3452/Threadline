@@ -70,16 +70,20 @@ jobs:
             }
           }
           function detail(cid,title,branch=false){
+            const root=`${cid}-root`
+            const user=`${cid}-u`
+            const main=`${cid}-main`
+            const side=`${cid}-side`
             const mapping={
-              root:{id:'root',message:null,parent:null,children:['u']},
-              u:{id:'u',message:msg('u','user',`HISTORY_QUESTION_${cid.slice(0,4)}`,1700800001),parent:'root',children:branch?['main','side']:['main']},
-              main:{id:'main',message:msg('main','assistant',`HISTORY_MAIN_${cid.slice(0,4)}`,1700800002),parent:'u',children:[]}
+              [root]:{id:root,message:null,parent:null,children:[user]},
+              [user]:{id:user,message:msg(user,'user',`HISTORY_QUESTION_${cid.slice(0,4)}`,1700800001),parent:root,children:branch?[main,side]:[main]},
+              [main]:{id:main,message:msg(main,'assistant',`HISTORY_MAIN_${cid.slice(0,4)}`,1700800002),parent:user,children:[]}
             }
-            if(branch) mapping.side={id:'side',message:msg('side','assistant','HISTORY_SIDE_SENTINEL',1700800003),parent:'u',children:[]}
+            if(branch) mapping[side]={id:side,message:msg(side,'assistant','HISTORY_SIDE_SENTINEL',1700800003),parent:user,children:[]}
             return {
               id:cid,conversation_id:cid,title,
               create_time:1700800000,update_time:1700800010,
-              current_node:'main',mapping
+              current_node:main,mapping
             }
           }
 
