@@ -11,7 +11,7 @@ import type {
 import { normalizeContent } from "./adapters/base";
 import { isTransientAssistantMessage } from "../utils/transient-assistant";
 import { CHUNK_SIZE_CHARS } from "./chunking";
-import { reconstructLogicalContent } from "../recovery/logical-content";
+import { reconstructLogicalContent, tryReconstructLogicalContent } from "../recovery/logical-content";
 import { protectAuthoritativeGraphPatch } from "../recovery/graph-authority";
 
 export class MemoryDatabase extends Dexie {
@@ -153,6 +153,73 @@ export class MemoryDatabase extends Dexie {
     return (await this.memories.add(recordToSave as MemoryRecord)) as string;
   }
 
+  /**
+   * Atomically replaces every physical row for one logical message.
+   * This prevents service-worker suspension/reload from leaving c21 without c0..c20.
+   */
+  async replaceLogicalRecordAtomically(
+    logicalId: string,
+    physicalRecords: MemoryRecord[],
+  ): Promise<MemoryRecord[]> {
+    return this.transaction("rw", this.memories, async () => {
+      const direct = await this.memories.get(logicalId);
+      const chunks = await this.memories.where("parentId").equals(logicalId).toArray();
+      const removed = [
+        ...(direct && !direct.isDeleted ? [direct] : []),
+        ...chunks,
+      ];
+
+      await this.memories.where("parentId").equals(logicalId).delete();
+      if (direct) await this.memories.delete(logicalId);
+
+      if (physicalRecords.length > 0) {
+        const normalized = physicalRecords.map((record) => ({
+          ...record,
+          hasEmbedding: record.embedding && record.embedding.length > 0 ? 1 : 0,
+        })) as MemoryRecord[];
+        await this.memories.bulkPut(normalized);
+      }
+      return removed;
+    });
+  }
+
+  /**
+   * Read-only comparison used by DOM refresh. Malformed/incomplete chunk sets
+   * are treated as needing replacement by the currently visible full message.
+   */
+  async assessDomMessageContent(
+    messageId: string,
+    content: string,
+  ): Promise<{ changed: boolean; removedRecords: MemoryRecord[]; malformed?: boolean }> {
+    const direct = await this.memories.get(messageId);
+    const chunks = await this.memories.where("parentId").equals(messageId).toArray();
+    if ((!direct || direct.isDeleted) && chunks.length === 0) {
+      return { changed: false, removedRecords: [] };
+    }
+
+    const removedRecords = [
+      ...(direct && !direct.isDeleted ? [direct] : []),
+      ...chunks,
+    ];
+    const reconstruction = direct
+      ? { content: direct.content, complete: true as const }
+      : tryReconstructLogicalContent(chunks);
+
+    if (!reconstruction.complete) {
+      return { changed: true, removedRecords, malformed: true };
+    }
+    if (reconstruction.content === content) {
+      return { changed: false, removedRecords: [] };
+    }
+    if (
+      content.length < reconstruction.content.length &&
+      reconstruction.content.startsWith(content)
+    ) {
+      return { changed: false, removedRecords: [] };
+    }
+    return { changed: true, removedRecords };
+  }
+
   async updateEmbedding(
     id: string,
     embedding: Float32Array,
@@ -265,7 +332,9 @@ export class MemoryDatabase extends Dexie {
       .equals(sessionId)
       .filter((r) => !r.isDeleted)
       .toArray();
-    const visibleRaw = raw.filter((record) => !isTransientAssistantMessage(record.role, record.content));
+    // Reconstruct physical chunks before transient filtering. Filtering individual
+    // physical chunks can create an artificial hole in a logical message.
+    const visibleRaw = raw;
     const mergedRecords = this.mergeGraphChunks(visibleRaw)
       .filter((record) => !isTransientAssistantMessage(record.role, record.content))
       .sort(sortMemoryRecords);
@@ -640,12 +709,26 @@ export class MemoryDatabase extends Dexie {
       const first = chunks[0];
       const timestamp = minTimelineValue(chunks.map((chunk) => chunk.timestamp));
       const createdAt = minTimelineValue(chunks.map((chunk) => chunk.createdAt));
+      const reconstruction = tryReconstructLogicalContent(chunks);
+      const integrityMetadata = reconstruction.complete
+        ? first.metadata
+        : {
+            ...(first.metadata ?? {}),
+            chunkIntegrity: "incomplete",
+            chunkReconstructionError: reconstruction.error,
+            chunkFirstStartUtf16: reconstruction.firstStartUtf16,
+          };
+      const visibleContent = reconstruction.complete
+        ? reconstruction.content
+        : `[Incomplete local capture: one or more physical chunks are missing. This message is excluded from Recall until repaired.]\n\n${reconstruction.content}`;
+
       result.push(
         toGraphRecord(
           {
             ...first,
             id: parentId,
-            content: reconstructLogicalContent(chunks),
+            content: visibleContent,
+            metadata: integrityMetadata,
             timestamp,
             createdAt,
             parentId: undefined,
