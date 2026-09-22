@@ -12,7 +12,7 @@ import MiniSearch from 'minisearch'
 import type { MemoryRecord } from '../types/memory'
 import { db } from './db'
 import type { SearchMemoriesRequest, SearchMemoriesResponse, SearchResult } from '../types/messages'
-import { reconstructLogicalContent } from '../recovery/logical-content'
+import { tryReconstructLogicalContent } from '../recovery/logical-content'
 import {
   applyTemporalDecay,
   buildRecordToGroupMap,
@@ -52,13 +52,15 @@ function groupKey(r: MemoryRecord): string {
 }
 
 /** Build one SearchResult from a logical message (single record or merged chunks). */
-function toSearchResult(records: MemoryRecord[], similarityScore: number): SearchResult {
+function toSearchResult(records: MemoryRecord[], similarityScore: number): SearchResult | null {
   const sorted = [...records].sort((a, b) => (a.chunkIndex ?? 0) - (b.chunkIndex ?? 0))
   const first = sorted[0]!
+  const reconstruction = tryReconstructLogicalContent(sorted)
+  if (!reconstruction.complete) return null
   return {
     id: first.parentId ?? first.id,
     role: first.role,
-    content: reconstructLogicalContent(sorted),
+    content: reconstruction.content,
     sessionId: first.sessionId,
     provider: first.provider,
     timestamp: first.timestamp,
@@ -201,6 +203,7 @@ export async function handleSearchMemories(
   const results: SearchResult[] = topKeys
     .filter((key) => groupRecords.has(key))
     .map((key) => toSearchResult(groupRecords.get(key)!, finalScores.get(key) ?? 0))
+    .filter((result): result is SearchResult => result !== null)
 
   return { type: 'SEARCH_MEMORIES_RESPONSE', payload: { results, query } }
 }
