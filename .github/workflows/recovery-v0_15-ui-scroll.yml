@@ -98,24 +98,17 @@ jobs:
             const choose=panel.getByText(/CHOOSE IMPORT TYPE/i)
             await choose.waitFor({state:'visible',timeout:10000})
 
-            const chatgpt=panel.locator('button').filter({hasText:'ChatGPT (conversations.json)'}).first()
-            await chatgpt.scrollIntoViewIfNeeded()
-            await chatgpt.waitFor({state:'visible',timeout:10000})
+            // Scroll the actual menu viewport, then reacquire controls after React settles.
+            await scroll.evaluate(el=>{ el.scrollTop = el.scrollHeight })
+            await page.waitForTimeout(250)
 
-            // Ensure the option is actually inside the visible panel viewport after scrolling,
-            // not merely present in a clipped DOM subtree.
-            const pb=await panel.boundingBox()
-            const cb=await chatgpt.boundingBox()
-            if(!pb||!cb)throw new Error('Missing bounds for ChatGPT importer')
-            console.log('CHATGPT_OPTION_BOX',JSON.stringify(cb))
-            if(cb.y < pb.y || cb.y+cb.height > pb.y+pb.height+1)throw new Error('ChatGPT importer remains clipped')
-
-            const exportBtn=panel.getByRole('button',{name:/Export backup/i})
-            await exportBtn.scrollIntoViewIfNeeded()
+            let exportBtn=panel.getByRole('button',{name:/Export backup/i})
             await exportBtn.waitFor({state:'visible',timeout:10000})
+            const pb=await panel.boundingBox()
             const eb=await exportBtn.boundingBox()
             if(!pb||!eb)throw new Error('Missing bounds for Export backup')
             console.log('EXPORT_BOX',JSON.stringify(eb))
+            if(!pb||!eb)throw new Error('Missing bounds for Export backup')
             if(eb.y < pb.y || eb.y+eb.height > pb.y+pb.height+1)throw new Error('Export backup remains clipped')
 
             const after=await scroll.evaluate(el=>({clientHeight:el.clientHeight,scrollHeight:el.scrollHeight,scrollTop:el.scrollTop}))
@@ -123,12 +116,29 @@ jobs:
             if(after.scrollHeight<=after.clientHeight)throw new Error('Short viewport did not exercise scrolling')
             if(after.scrollTop<=0)throw new Error('Menu never actually scrolled')
 
+            // Bring the ChatGPT importer itself into view after the bottom-reachability check.
+            await scroll.evaluate(el=>{ el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight - 140) })
+            await page.waitForTimeout(250)
+            let chatgpt=panel.locator('button').filter({hasText:'ChatGPT (conversations.json)'}).first()
+            if(!(await chatgpt.count())) throw new Error('ChatGPT importer disappeared after scrolling')
+            await chatgpt.evaluate(el=>el.scrollIntoView({block:'nearest'}))
+            await page.waitForTimeout(150)
+            chatgpt=panel.locator('button').filter({hasText:'ChatGPT (conversations.json)'}).first()
+            const cb=await chatgpt.boundingBox()
+            if(!pb||!cb)throw new Error('Missing bounds for ChatGPT importer')
+            console.log('CHATGPT_OPTION_BOX',JSON.stringify(cb))
+            if(cb.y < pb.y || cb.y+cb.height > pb.y+pb.height+1)throw new Error('ChatGPT importer remains clipped')
+
             // Collapse/reopen import after scrolling; controls must stay usable.
-            await importBtn.scrollIntoViewIfNeeded()
-            await importBtn.click()
-            await importBtn.click()
-            await chatgpt.scrollIntoViewIfNeeded()
-            await chatgpt.waitFor({state:'visible',timeout:10000})
+            let importBtnAgain=panel.getByRole('button',{name:/Import backup/i})
+            await importBtnAgain.evaluate(el=>el.scrollIntoView({block:'nearest'}))
+            await page.waitForTimeout(150)
+            importBtnAgain=panel.getByRole('button',{name:/Import backup/i})
+            await importBtnAgain.click()
+            await importBtnAgain.click()
+            await page.waitForTimeout(150)
+            chatgpt=panel.locator('button').filter({hasText:'ChatGPT (conversations.json)'}).first()
+            if(!(await chatgpt.count())) throw new Error('ChatGPT importer missing after collapse/reopen')
 
             await context.close()
             console.log('SHORT_PANEL_UI_E2E_PASS')
