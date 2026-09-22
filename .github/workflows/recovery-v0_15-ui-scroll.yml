@@ -1,0 +1,137 @@
+name: Recovery v0.15 short-panel UI acceptance
+
+on:
+  pull_request:
+    branches:
+      - recovery-v0.11-ci-base
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ui-scroll:
+    name: Short viewport · Import menu · full scroll reachability
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.25.0
+          run_install: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Frozen install · typecheck · tests · build
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm exec tsc --noEmit
+          pnpm test
+          pnpm build
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Short viewport floating-panel E2E
+        shell: bash
+        run: |
+          cat > /tmp/threadline-ui-scroll.cjs <<'NODE'
+          const fs=require('fs')
+          const path=require('path')
+          const os=require('os')
+          const {createRequire}=require('module')
+          const root=process.cwd()
+          const requireTarget=createRequire(path.join(root,'package.json'))
+          const {chromium}=requireTarget('@playwright/test')
+          const build=path.join(root,'build','chrome-mv3-prod')
+
+          async function workerFor(context){
+            return context.serviceWorkers()[0] || await context.waitForEvent('serviceworker',{timeout:15000})
+          }
+
+          ;(async()=>{
+            const context=await chromium.launchPersistentContext(
+              fs.mkdtempSync(path.join(os.tmpdir(),'threadline-short-ui-')),
+              {
+                headless:false,
+                viewport:{width:900,height:420},
+                args:[`--disable-extensions-except=${build}`,`--load-extension=${build}`,'--no-first-run','--no-default-browser-check']
+              }
+            )
+            const worker=await workerFor(context)
+            const page=await context.newPage()
+            await page.goto('https://chatgpt.com/',{waitUntil:'domcontentloaded',timeout:30000})
+            await page.locator('#ai-memory-float-root').waitFor({state:'attached',timeout:15000})
+            const opened=await worker.evaluate(async()=>{
+              const tabs=await chrome.tabs.query({})
+              const tab=tabs.find(t=>(t.url||'').startsWith('https://chatgpt.com/'))
+              if(!tab?.id)return false
+              await chrome.tabs.sendMessage(tab.id,{type:'OPEN_MEMORY_PANEL'})
+              return true
+            })
+            if(!opened)throw new Error('Could not open floating panel')
+            const panel=page.getByRole('dialog',{name:/Threadline panel/i})
+            await panel.waitFor({state:'visible',timeout:15000})
+
+            const box=await panel.boundingBox()
+            if(!box)throw new Error('No panel box')
+            console.log('PANEL_BOX',JSON.stringify(box))
+            if(box.y<0 || box.y+box.height>421)throw new Error('Panel escapes short viewport')
+
+            const scroll=panel.locator('[data-testid="threadline-menu-scroll"]')
+            await scroll.waitFor({state:'visible',timeout:10000})
+            const before=await scroll.evaluate(el=>({clientHeight:el.clientHeight,scrollHeight:el.scrollHeight,overflowY:getComputedStyle(el).overflowY}))
+            console.log('MENU_BEFORE',JSON.stringify(before))
+            if(before.overflowY!=='auto' && before.overflowY!=='scroll')throw new Error('Menu is not vertically scrollable')
+
+            const importBtn=panel.getByRole('button',{name:/Import backup/i})
+            await importBtn.scrollIntoViewIfNeeded()
+            await importBtn.click()
+
+            const choose=panel.getByText(/CHOOSE IMPORT TYPE/i)
+            await choose.waitFor({state:'visible',timeout:10000})
+
+            const chatgpt=panel.locator('button').filter({hasText:'ChatGPT (conversations.json)'}).first()
+            await chatgpt.scrollIntoViewIfNeeded()
+            await chatgpt.waitFor({state:'visible',timeout:10000})
+
+            // Ensure the option is actually inside the visible panel viewport after scrolling,
+            // not merely present in a clipped DOM subtree.
+            const pb=await panel.boundingBox()
+            const cb=await chatgpt.boundingBox()
+            if(!pb||!cb)throw new Error('Missing bounds for ChatGPT importer')
+            console.log('CHATGPT_OPTION_BOX',JSON.stringify(cb))
+            if(cb.y < pb.y || cb.y+cb.height > pb.y+pb.height+1)throw new Error('ChatGPT importer remains clipped')
+
+            const exportBtn=panel.getByRole('button',{name:/Export backup/i})
+            await exportBtn.scrollIntoViewIfNeeded()
+            await exportBtn.waitFor({state:'visible',timeout:10000})
+            const eb=await exportBtn.boundingBox()
+            if(!pb||!eb)throw new Error('Missing bounds for Export backup')
+            console.log('EXPORT_BOX',JSON.stringify(eb))
+            if(eb.y < pb.y || eb.y+eb.height > pb.y+pb.height+1)throw new Error('Export backup remains clipped')
+
+            const after=await scroll.evaluate(el=>({clientHeight:el.clientHeight,scrollHeight:el.scrollHeight,scrollTop:el.scrollTop}))
+            console.log('MENU_AFTER',JSON.stringify(after))
+            if(after.scrollHeight<=after.clientHeight)throw new Error('Short viewport did not exercise scrolling')
+            if(after.scrollTop<=0)throw new Error('Menu never actually scrolled')
+
+            // Collapse/reopen import after scrolling; controls must stay usable.
+            await importBtn.scrollIntoViewIfNeeded()
+            await importBtn.click()
+            await importBtn.click()
+            await chatgpt.scrollIntoViewIfNeeded()
+            await chatgpt.waitFor({state:'visible',timeout:10000})
+
+            await context.close()
+            console.log('SHORT_PANEL_UI_E2E_PASS')
+          })().catch(e=>{console.error(e);process.exit(1)})
+          NODE
+          xvfb-run -a node /tmp/threadline-ui-scroll.cjs
