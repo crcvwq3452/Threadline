@@ -730,6 +730,7 @@ function FloatingMemoryPanelInner() {
                 zIndex: 2147483647,
                 width: panelWidth,
                 maxWidth: panelWidth,
+                height: effectiveMaxH,
                 maxHeight: effectiveMaxH,
                 backgroundColor:
                   theme === "dark"
@@ -995,10 +996,14 @@ function FloatingMemoryPanelInner() {
                 >
                   {/* Slot 0: Menu */}
                   <div
+                    data-testid="threadline-menu-scroll"
                     style={{
                       width: panelWidth,
                       flexShrink: 0,
-                      overflow: "hidden",
+                      overflowY: "auto",
+                      overflowX: "hidden",
+                      overscrollBehavior: "contain",
+                      scrollbarGutter: "stable",
                       display: "flex",
                       flexDirection: "column",
                       opacity: panelView === "menu" ? 1 : 0,
@@ -1012,11 +1017,12 @@ function FloatingMemoryPanelInner() {
                         display: "flex",
                         flexDirection: "column",
                         gap: 10,
-                        flex: 1,
-                        minHeight: 0,
+                        flex: "0 0 auto",
+                        minHeight: "100%",
+                        boxSizing: "border-box",
                       }}
                     >
-                      <div style={{ flexShrink: resizingFrom === "bottom" ? 0 : 1, minHeight: 0, overflow: "hidden" }}>
+                      <div style={{ flexShrink: 0, overflow: "visible" }}>
                         <FavoritePromptsSection />
                       </div>
                       <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", gap: 10 }}>
@@ -1077,7 +1083,7 @@ function FloatingMemoryPanelInner() {
                           <span>{t.memoryGraph}</span>
                         </button>
                       </div>
-                      <div style={{ flexShrink: resizingFrom === "top" ? 0 : 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column", gap: 10 }}>
+                      <div style={{ flexShrink: 0, overflow: "visible", display: "flex", flexDirection: "column", gap: 10 }}>
                         <ImportView />
                         <ExportView />
                       </div>
