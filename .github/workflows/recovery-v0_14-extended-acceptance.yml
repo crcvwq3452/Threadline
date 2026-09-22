@@ -237,7 +237,7 @@ jobs:
             const start=Date.now()
             while(Date.now()-start<timeout){
               const txt=(await panel.innerText()).replace(/\s+/g,' ')
-              if(/Successfully imported \d+ .* from ChatGPT|ChatGPT: imported \d+ new|already imported/i.test(txt)) return txt
+              if(/Stored:\s*\d+;\s*skipped:\s*\d+|ChatGPT ZIP import complete|already imported/i.test(txt)) return txt
               if(/import failed|failed to import/i.test(txt)) throw new Error('Import failure UI: '+txt)
               await sleep(250)
             }
