@@ -96,3 +96,261 @@ jobs:
       - name: Production build
         working-directory: target
         run: pnpm build
+
+      - name: Install Playwright Chromium
+        working-directory: target
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Create branch-preservation ZIP fixture
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, zipfile
+          fixture = [{
+              "id": "e2e-conv-1",
+              "conversation_id": "e2e-conv-1",
+              "title": "Recovery Browser E2E",
+              "create_time": 1700000000,
+              "update_time": 1700000030,
+              "current_node": "a-main",
+              "mapping": {
+                  "root": {
+                      "id": "root",
+                      "message": None,
+                      "parent": None,
+                      "children": ["u1"],
+                  },
+                  "u1": {
+                      "id": "u1",
+                      "parent": "root",
+                      "children": ["a-main", "a-side"],
+                      "message": {
+                          "id": "u1",
+                          "author": {"role": "user", "name": None, "metadata": {}},
+                          "create_time": 1700000001,
+                          "update_time": None,
+                          "content": {"content_type": "text", "parts": ["E2E_BRANCH_QUESTION"]},
+                          "status": "finished_successfully",
+                          "end_turn": None,
+                          "weight": 1.0,
+                          "metadata": {},
+                          "recipient": "all",
+                      },
+                  },
+                  "a-main": {
+                      "id": "a-main",
+                      "parent": "u1",
+                      "children": [],
+                      "message": {
+                          "id": "a-main",
+                          "author": {"role": "assistant", "name": None, "metadata": {}},
+                          "create_time": 1700000002,
+                          "update_time": None,
+                          "content": {"content_type": "text", "parts": ["MAIN_BRANCH_SENTINEL"]},
+                          "status": "finished_successfully",
+                          "end_turn": True,
+                          "weight": 1.0,
+                          "metadata": {},
+                          "recipient": "all",
+                      },
+                  },
+                  "a-side": {
+                      "id": "a-side",
+                      "parent": "u1",
+                      "children": [],
+                      "message": {
+                          "id": "a-side",
+                          "author": {"role": "assistant", "name": None, "metadata": {}},
+                          "create_time": 1700000003,
+                          "update_time": None,
+                          "content": {"content_type": "text", "parts": ["SIDE_BRANCH_SENTINEL"]},
+                          "status": "finished_successfully",
+                          "end_turn": True,
+                          "weight": 1.0,
+                          "metadata": {},
+                          "recipient": "all",
+                      },
+                  },
+              },
+          }]
+          with zipfile.ZipFile("/tmp/chatgpt-recovery-e2e.zip", "w", zipfile.ZIP_DEFLATED) as z:
+              z.writestr("conversations.json", json.dumps(fixture))
+          PY
+          unzip -l /tmp/chatgpt-recovery-e2e.zip
+
+      - name: Chromium MV3 ZIP import and branch-preservation E2E
+        shell: bash
+        run: |
+          cat > /tmp/recovery-browser-e2e.cjs <<'NODE'
+          const fs = require('fs')
+          const path = require('path')
+          const os = require('os')
+          const { createRequire } = require('module')
+
+          const workspace = process.env.GITHUB_WORKSPACE
+          const targetRoot = path.join(workspace, 'target')
+          const requireTarget = createRequire(path.join(targetRoot, 'package.json'))
+          const { chromium } = requireTarget('@playwright/test')
+
+          function findExtensionDir() {
+            const candidates = [
+              path.join(targetRoot, 'build', 'chrome-mv3-prod'),
+              path.join(targetRoot, 'build', 'chrome-mv3'),
+            ]
+            for (const candidate of candidates) {
+              if (fs.existsSync(path.join(candidate, 'manifest.json'))) return candidate
+            }
+            const buildRoot = path.join(targetRoot, 'build')
+            if (fs.existsSync(buildRoot)) {
+              for (const name of fs.readdirSync(buildRoot)) {
+                const candidate = path.join(buildRoot, name)
+                if (fs.existsSync(path.join(candidate, 'manifest.json'))) return candidate
+              }
+            }
+            throw new Error('Could not locate built extension manifest under target/build')
+          }
+
+          async function readMemories(page) {
+            return page.evaluate(async () => {
+              return await new Promise((resolve, reject) => {
+                const open = indexedDB.open('AIMemoryDB')
+                open.onerror = () => reject(open.error)
+                open.onsuccess = () => {
+                  const db = open.result
+                  const tx = db.transaction('memories', 'readonly')
+                  const req = tx.objectStore('memories').getAll()
+                  req.onerror = () => reject(req.error)
+                  req.onsuccess = () => resolve(req.result)
+                }
+              })
+            })
+          }
+
+          async function runtimeMessage(page, message) {
+            return page.evaluate((msg) => new Promise((resolve, reject) => {
+              chrome.runtime.sendMessage(msg, (response) => {
+                if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message))
+                else resolve(response)
+              })
+            }), message)
+          }
+
+          ;(async () => {
+            const extensionPath = findExtensionDir()
+            console.log('E2E extension path:', extensionPath)
+            const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'threadline-e2e-'))
+            const context = await chromium.launchPersistentContext(userDataDir, {
+              headless: false,
+              locale: 'en-US',
+              args: [
+                `--disable-extensions-except=${extensionPath}`,
+                `--load-extension=${extensionPath}`,
+                '--no-first-run',
+                '--no-default-browser-check',
+              ],
+            })
+
+            const errors = []
+            context.on('page', (p) => {
+              p.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`))
+              p.on('console', (m) => {
+                if (m.type() === 'error') errors.push(`console: ${m.text()}`)
+              })
+            })
+
+            let workers = context.serviceWorkers()
+            let worker = workers[0]
+            if (!worker) worker = await context.waitForEvent('serviceworker', { timeout: 15000 })
+            const workerUrl = new URL(worker.url())
+            const extensionId = workerUrl.host
+            if (!extensionId) throw new Error(`Could not infer extension ID from worker URL ${worker.url()}`)
+            console.log('E2E extension ID:', extensionId)
+
+            const manifest = JSON.parse(fs.readFileSync(path.join(extensionPath, 'manifest.json'), 'utf8'))
+            const popupPath = manifest.action?.default_popup || 'popup.html'
+            const page = await context.newPage()
+            page.on('pageerror', (e) => errors.push(`popup pageerror: ${e.message}`))
+            page.on('console', (m) => {
+              if (m.type() === 'error') errors.push(`popup console: ${m.text()}`)
+            })
+            await page.goto(`chrome-extension://${extensionId}/${popupPath}`)
+            await page.waitForLoadState('domcontentloaded')
+
+            const importToggle = page.getByRole('button', { name: /Import backup/i })
+            await importToggle.waitFor({ state: 'visible', timeout: 15000 })
+            await importToggle.click()
+
+            const chatgptButton = page.getByRole('button', { name: /ChatGPT/i }).first()
+            await chatgptButton.waitFor({ state: 'visible', timeout: 10000 })
+            const chooserPromise = page.waitForEvent('filechooser')
+            await chatgptButton.click()
+            const chooser = await chooserPromise
+            await chooser.setFiles('/tmp/chatgpt-recovery-e2e.zip')
+
+            await page.waitForFunction(() => {
+              const text = document.body.innerText
+              return /Successfully imported|imported \d+ new|failed|error/i.test(text)
+            }, null, { timeout: 30000 })
+
+            const bodyText = await page.locator('body').innerText()
+            console.log('E2E popup status:', bodyText.replace(/\s+/g, ' ').slice(-900))
+            if (/failed|error/i.test(bodyText) && !/Successfully imported/i.test(bodyText)) {
+              throw new Error(`Popup reported import failure: ${bodyText}`)
+            }
+
+            const all = await readMemories(page)
+            const records = all.filter((r) => r.sessionId === 'openai:e2e-conv-1')
+            console.log('E2E stored records:', JSON.stringify(records.map((r) => ({
+              id: r.id,
+              originalMessageId: r.originalMessageId,
+              role: r.role,
+              content: r.content,
+              roundIndex: r.roundIndex,
+              branchIndex: r.branchIndex,
+              branchId: r.branchId,
+              pathId: r.pathId,
+              metadata: r.metadata,
+            })), null, 2))
+
+            if (!records.some((r) => r.content.includes('MAIN_BRANCH_SENTINEL'))) {
+              throw new Error('Main branch assistant answer missing from IndexedDB')
+            }
+            if (!records.some((r) => r.content.includes('SIDE_BRANCH_SENTINEL'))) {
+              throw new Error('Inactive side branch assistant answer missing from IndexedDB')
+            }
+            const assistants = records.filter((r) => r.role === 'assistant')
+            if (assistants.length < 2) throw new Error(`Expected >=2 assistant records, got ${assistants.length}`)
+            const assistantPaths = new Set(assistants.map((r) => r.pathId).filter(Boolean))
+            if (assistantPaths.size < 2) {
+              throw new Error(`Expected distinct assistant paths, got ${JSON.stringify([...assistantPaths])}`)
+            }
+            const originals = new Set(records.map((r) => r.originalMessageId).filter(Boolean))
+            for (const id of ['u1', 'a-main', 'a-side']) {
+              if (!originals.has(id)) throw new Error(`Missing originalMessageId ${id}`)
+            }
+
+            const search = await runtimeMessage(page, {
+              type: 'SEARCH_MEMORIES',
+              payload: { query: 'SIDE_BRANCH_SENTINEL', topK: 5 },
+            })
+            console.log('E2E search response:', JSON.stringify(search))
+            const results = search?.payload?.results || []
+            if (!results.some((r) => String(r.content || '').includes('SIDE_BRANCH_SENTINEL'))) {
+              throw new Error('Lexical search did not recover inactive side branch sentinel')
+            }
+
+            if (errors.length) {
+              const meaningful = errors.filter((e) => !/favicon|DevTools/i.test(e))
+              if (meaningful.length) {
+                console.log('E2E browser errors observed:', meaningful)
+              }
+            }
+
+            await context.close()
+            console.log('BROWSER_E2E_PASS')
+          })().catch((error) => {
+            console.error(error)
+            process.exit(1)
+          })
+          NODE
+          xvfb-run -a node /tmp/recovery-browser-e2e.cjs
