@@ -1,1 +1,1 @@
-recovery-v0.11 validation trigger
+recovery-v0.12 validation trigger
