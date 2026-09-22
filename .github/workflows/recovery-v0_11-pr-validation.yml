@@ -267,7 +267,25 @@ jobs:
             console.log('E2E extension ID:', extensionId)
 
             const manifest = JSON.parse(fs.readFileSync(path.join(extensionPath, 'manifest.json'), 'utf8'))
-            const popupPath = manifest.action?.default_popup || 'popup.html'
+            console.log('E2E built manifest:', JSON.stringify(manifest, null, 2))
+            const htmlFiles = []
+            const walk = (dir, prefix = '') => {
+              for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+                const rel = prefix ? `${prefix}/${entry.name}` : entry.name
+                const abs = path.join(dir, entry.name)
+                if (entry.isDirectory()) walk(abs, rel)
+                else if (entry.name.endsWith('.html')) htmlFiles.push(rel)
+              }
+            }
+            walk(extensionPath)
+            console.log('E2E built HTML files:', htmlFiles)
+            const popupPath =
+              manifest.action?.default_popup ||
+              manifest.browser_action?.default_popup ||
+              htmlFiles.find((p) => /popup/i.test(p)) ||
+              htmlFiles.find((p) => /index\.html$/i.test(p))
+            if (!popupPath) throw new Error(`No extension HTML entry found. Files: ${JSON.stringify(htmlFiles)}`)
+            console.log('E2E chosen popup/UI path:', popupPath)
             const page = await context.newPage()
             page.on('pageerror', (e) => errors.push(`popup pageerror: ${e.message}`))
             page.on('console', (m) => {
