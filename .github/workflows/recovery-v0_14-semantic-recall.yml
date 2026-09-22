@@ -164,8 +164,12 @@ jobs:
             })
             const worker=await workerFor(context)
             const extensionId=new URL(worker.url()).host
+            await context.route('https://chatgpt.com/**',route=>route.fulfill({
+              status:200,contentType:'text/html',
+              body:'<!doctype html><html><head><title>Threadline Recall CI</title></head><body><main>mock chatgpt</main></body></html>'
+            }))
             const host=await context.newPage()
-            await host.goto('https://chatgpt.com/',{waitUntil:'domcontentloaded',timeout:30000})
+            await host.goto('https://chatgpt.com/',{waitUntil:'domcontentloaded',timeout:10000})
             await host.locator('#ai-memory-float-root').waitFor({state:'attached',timeout:15000})
             const panel=await openPanel(host,worker)
             await importDirect(panel)
