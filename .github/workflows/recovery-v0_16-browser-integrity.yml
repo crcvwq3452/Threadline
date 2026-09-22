@@ -1,0 +1,209 @@
+name: Recovery v0.16 browser integrity acceptance
+
+on:
+  pull_request:
+    branches:
+      - recovery-v0.11-ci-base
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  browser-integrity:
+    name: c21 browser quarantine · persistent import report
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.25.0
+          run_install: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install and build
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm exec tsc --noEmit
+          pnpm build
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Create direct ChatGPT fixture
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, pathlib
+          out=pathlib.Path('/tmp/v016')
+          out.mkdir(exist_ok=True)
+          def msg(mid, role, text, ts, end=True):
+              return {
+                  'id':mid,
+                  'author':{'role':role,'name':None,'metadata':{}},
+                  'create_time':ts,
+                  'update_time':None,
+                  'content':{'content_type':'text','parts':[text]},
+                  'status':'finished_successfully',
+                  'end_turn':end if role=='assistant' else None,
+                  'weight':1.0,'metadata':{},'recipient':'all',
+              }
+          cid='v016-import-check'
+          conv={
+              'id':cid,'conversation_id':cid,'title':'V016 import check',
+              'create_time':1700900000,'update_time':1700900003,'current_node':'v16-a',
+              'mapping':{
+                  'v16-root':{'id':'v16-root','message':None,'parent':None,'children':['v16-u']},
+                  'v16-u':{'id':'v16-u','message':msg('v16-u','user','V016_IMPORT_QUESTION',1700900001),'parent':'v16-root','children':['v16-a']},
+                  'v16-a':{'id':'v16-a','message':msg('v16-a','assistant','V016_IMPORT_SENTINEL',1700900002),'parent':'v16-u','children':[]},
+              }
+          }
+          (out/'direct.json').write_text(json.dumps([conv]),encoding='utf-8')
+          PY
+
+      - name: Chromium c21 + report E2E
+        shell: bash
+        run: |
+          cat > /tmp/v016-browser.cjs <<'NODE'
+          const fs=require('fs')
+          const path=require('path')
+          const os=require('os')
+          const {createRequire}=require('module')
+          const root=process.cwd()
+          const requireTarget=createRequire(path.join(root,'package.json'))
+          const {chromium}=requireTarget('@playwright/test')
+          const build=path.join(root,'build','chrome-mv3-prod')
+          const fixture='/tmp/v016/direct.json'
+          const sleep=ms=>new Promise(r=>setTimeout(r,ms))
+
+          async function workerFor(context){
+            return context.serviceWorkers()[0] || await context.waitForEvent('serviceworker',{timeout:15000})
+          }
+
+          async function openPanel(page,worker){
+            const ok=await worker.evaluate(async()=>{
+              const tabs=await chrome.tabs.query({})
+              const tab=tabs.find(t=>(t.url||'').startsWith('https://chatgpt.com/'))
+              if(!tab?.id)return false
+              await chrome.tabs.sendMessage(tab.id,{type:'OPEN_MEMORY_PANEL'})
+              return true
+            })
+            if(!ok)throw new Error('Could not open panel')
+            const panel=page.getByRole('dialog',{name:/Threadline panel/i})
+            await panel.waitFor({state:'visible',timeout:15000})
+            return panel
+          }
+
+          async function seedBrokenGraph(page){
+            await page.evaluate(async()=>{
+              const open=()=>new Promise((resolve,reject)=>{
+                const req=indexedDB.open('AIMemoryDB')
+                req.onerror=()=>reject(req.error)
+                req.onsuccess=()=>resolve(req.result)
+              })
+              const db=await open()
+              const tx=db.transaction(['memories','conversations'],'readwrite')
+              const memories=tx.objectStore('memories')
+              const conversations=tx.objectStore('conversations')
+              const base={
+                provider:'openai',timestamp:1000,createdAt:1000,
+                isPartial:false,isDeleted:false,isSuperseded:false,hasEmbedding:0,
+              }
+              memories.put({...base,id:'healthy-u',role:'user',content:'healthy content',sessionId:'openai:healthy'})
+              conversations.put({sessionId:'openai:healthy',title:'Healthy session',updatedAt:1000})
+              const parent='e1f03bbb-d021-4246-a15b-cc0ac97ba6f7'
+              memories.put({
+                ...base,id:parent+'-c21',role:'assistant',sessionId:'openai:broken',
+                parentId:parent,chunkIndex:21,content:'A'.repeat(500),
+                metadata:{chunkStartUtf16:9124,chunkLengthUtf16:500}
+              })
+              memories.put({
+                ...base,id:parent+'-c22',role:'assistant',sessionId:'openai:broken',
+                parentId:parent,chunkIndex:22,content:'A'.repeat(75)+'B'.repeat(425),
+                metadata:{chunkStartUtf16:9549,chunkLengthUtf16:500}
+              })
+              conversations.put({sessionId:'openai:broken',title:'Broken c21 session',updatedAt:1000})
+              await new Promise((resolve,reject)=>{
+                tx.oncomplete=()=>resolve()
+                tx.onerror=()=>reject(tx.error)
+                tx.onabort=()=>reject(tx.error)
+              })
+            })
+          }
+
+          ;(async()=>{
+            const context=await chromium.launchPersistentContext(
+              fs.mkdtempSync(path.join(os.tmpdir(),'threadline-v016-')),
+              {
+                headless:false,
+                args:[`--disable-extensions-except=${build}`,`--load-extension=${build}`,'--no-first-run','--no-default-browser-check']
+              }
+            )
+            await context.route('https://chatgpt.com/**',route=>route.fulfill({
+              status:200,contentType:'text/html',
+              body:'<!doctype html><html><head><title>Threadline CI Chat</title></head><body><main>mock chatgpt</main></body></html>'
+            }))
+
+            const worker=await workerFor(context)
+            const extensionId=new URL(worker.url()).host
+
+            const graph=await context.newPage()
+            await graph.goto(`chrome-extension://${extensionId}/tabs/memory-graph.html`)
+            await graph.waitForLoadState('domcontentloaded')
+            await sleep(500)
+            await seedBrokenGraph(graph)
+            await graph.reload()
+            await graph.waitForLoadState('domcontentloaded')
+
+            await graph.getByText('2 conversations',{exact:false}).waitFor({state:'visible',timeout:15000})
+            if(await graph.getByText('No sessions found.',{exact:true}).count()) throw new Error('Sessions still collapsed to zero')
+            const bodyText=await graph.locator('body').innerText()
+            if(bodyText.includes('Chunk offset gap: expected <= 0, got 9124')) throw new Error('Global offset-gap crash still visible')
+            console.log('SESSION_LIST_SURVIVES_C21')
+
+            const broken=graph.getByText('Broken c21 session',{exact:true}).first()
+            await broken.click()
+            await graph.getByText(/Incomplete local capture:/).waitFor({state:'visible',timeout:10000})
+            console.log('BROKEN_GROUP_QUARANTINED')
+
+            const host=await context.newPage()
+            await host.goto('https://chatgpt.com/',{waitUntil:'domcontentloaded',timeout:10000})
+            await host.locator('#ai-memory-float-root').waitFor({state:'attached',timeout:15000})
+            let panel=await openPanel(host,worker)
+            let importBtn=panel.getByRole('button',{name:/Import backup/i})
+            await importBtn.click()
+            const provider=panel.locator('button').filter({hasText:'ChatGPT (conversations.json)'}).first()
+            await provider.waitFor({state:'visible',timeout:10000})
+            await provider.click({noWaitAfter:true})
+            const input=panel.locator('input[type="file"][accept*=".json"]').last()
+            await input.setInputFiles(fixture)
+
+            const reportText=/Stored:\s*2;\s*skipped:\s*0/i
+            await panel.getByText(reportText).waitFor({state:'visible',timeout:30000})
+            const storedReport=await host.evaluate(()=>new Promise(resolve=>{
+              chrome.runtime.sendMessage({type:'GET_CAPTURE_MODE'},()=>{})
+              chrome.storage.local.get(['threadlineLastImportReport']).then(x=>resolve(x.threadlineLastImportReport))
+            }))
+            console.log('PERSISTED_REPORT',JSON.stringify(storedReport))
+            if(!storedReport || !String(storedReport.message||'').match(reportText)) throw new Error('Persistent import report not stored')
+
+            await host.reload({waitUntil:'domcontentloaded',timeout:10000})
+            await host.locator('#ai-memory-float-root').waitFor({state:'attached',timeout:15000})
+            panel=await openPanel(host,worker)
+            await panel.getByText(reportText).waitFor({state:'visible',timeout:15000})
+            console.log('IMPORT_REPORT_SURVIVES_REOPEN')
+
+            await context.close()
+            console.log('V016_BROWSER_INTEGRITY_PASS')
+          })().catch(e=>{console.error(e);process.exit(1)})
+          NODE
+          xvfb-run -a node /tmp/v016-browser.cjs
