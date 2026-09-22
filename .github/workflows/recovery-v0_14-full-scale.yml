@@ -1,0 +1,217 @@
+name: Recovery v0.14 full-scale archive acceptance
+
+on:
+  pull_request:
+    branches:
+      - recovery-v0.11-ci-base
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  full-scale:
+    name: 94 files · ~140MB ZIP · ~650MB uncompressed
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.25.0
+          run_install: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install and build
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Generate full-scale 94-entry ChatGPT ZIP
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import base64, json, pathlib, random, zipfile, time
+          out=pathlib.Path('/tmp/full-scale')
+          out.mkdir(exist_ok=True)
+          zp=out/'chatgpt-94-full-scale.zip'
+          rng=random.Random(2026092202)
+
+          def msg(mid, role, text, ts, end_turn=True):
+              return {
+                  'id':mid,
+                  'author':{'role':role,'name':None,'metadata':{}},
+                  'create_time':ts,
+                  'update_time':None,
+                  'content':{'content_type':'text','parts':[text]},
+                  'status':'finished_successfully',
+                  'end_turn':end_turn if role=='assistant' else None,
+                  'weight':1.0,
+                  'metadata':{},
+                  'recipient':'all',
+              }
+
+          started=time.time()
+          with zipfile.ZipFile(zp,'w',zipfile.ZIP_DEFLATED,compresslevel=6,allowZip64=True) as z:
+              for i in range(94):
+                  cid=f'fullscale-{i:03d}'
+                  random_text=base64.b64encode(rng.randbytes(1_500_000)).decode('ascii')
+                  repeat_text='R'*5_000_000
+                  conv={
+                      'id':cid,'conversation_id':cid,'title':f'Full Scale {i:03d}',
+                      'create_time':1700600000+i*10,'update_time':1700600005+i*10,
+                      'current_node':f'{cid}-a',
+                      'opaque_random_padding':random_text,
+                      'opaque_repeat_padding':repeat_text,
+                      'mapping':{
+                          f'{cid}-root':{'id':f'{cid}-root','message':None,'parent':None,'children':[f'{cid}-u']},
+                          f'{cid}-u':{
+                              'id':f'{cid}-u',
+                              'message':msg(f'{cid}-u','user',f'FULLSCALE_QUESTION_{i:03d}',1700600001+i*10),
+                              'parent':f'{cid}-root','children':[f'{cid}-a']
+                          },
+                          f'{cid}-a':{
+                              'id':f'{cid}-a',
+                              'message':msg(f'{cid}-a','assistant',f'FULLSCALE_ANSWER_{i:03d}',1700600002+i*10),
+                              'parent':f'{cid}-u','children':[]
+                          }
+                      }
+                  }
+                  z.writestr(f'chatgpt_{i:03d}.json',json.dumps(conv))
+          with zipfile.ZipFile(zp) as z:
+              uncompressed=sum(x.file_size for x in z.infolist())
+              compressed=sum(x.compress_size for x in z.infolist())
+              print('FULL_SCALE_ENTRIES',len(z.infolist()))
+              print('FULL_SCALE_UNCOMPRESSED',uncompressed)
+              print('FULL_SCALE_COMPRESSED_PAYLOAD',compressed)
+          print('FULL_SCALE_ZIP_BYTES',zp.stat().st_size)
+          print('FULL_SCALE_GENERATE_SECONDS',round(time.time()-started,2))
+          PY
+          ls -lh /tmp/full-scale/chatgpt-94-full-scale.zip
+
+      - name: Chromium full-scale import
+        shell: bash
+        run: |
+          cat > /tmp/full-scale-e2e.cjs <<'NODE'
+          const fs=require('fs')
+          const path=require('path')
+          const os=require('os')
+          const {createRequire}=require('module')
+          const root=process.cwd()
+          const requireTarget=createRequire(path.join(root,'package.json'))
+          const {chromium}=requireTarget('@playwright/test')
+          const build=path.join(root,'build','chrome-mv3-prod')
+          const zip='/tmp/full-scale/chatgpt-94-full-scale.zip'
+          const sleep=ms=>new Promise(r=>setTimeout(r,ms))
+
+          async function workerFor(context){
+            return context.serviceWorkers()[0] || await context.waitForEvent('serviceworker',{timeout:15000})
+          }
+          async function allMemories(page){
+            return page.evaluate(()=>new Promise((resolve,reject)=>{
+              const q=indexedDB.open('AIMemoryDB')
+              q.onerror=()=>reject(q.error)
+              q.onsuccess=()=>{
+                const db=q.result
+                const tx=db.transaction('memories','readonly')
+                const r=tx.objectStore('memories').getAll()
+                r.onerror=()=>reject(r.error)
+                r.onsuccess=()=>resolve(r.result)
+              }
+            }))
+          }
+          async function runtimeMessage(page,msg){
+            return page.evaluate(m=>new Promise((resolve,reject)=>{
+              chrome.runtime.sendMessage(m,r=>{
+                if(chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message))
+                else resolve(r)
+              })
+            }),msg)
+          }
+          async function openPanel(page,worker){
+            const r=await worker.evaluate(async()=>{
+              const tabs=await chrome.tabs.query({})
+              const tab=tabs.find(t=>(t.url||'').startsWith('https://chatgpt.com/'))
+              if(!tab?.id)return{ok:false}
+              await chrome.tabs.sendMessage(tab.id,{type:'OPEN_MEMORY_PANEL'})
+              return{ok:true}
+            })
+            if(!r.ok)throw new Error('ChatGPT tab missing')
+            const panel=page.getByRole('dialog',{name:/Threadline panel/i})
+            await panel.waitFor({state:'visible',timeout:15000})
+            return panel
+          }
+
+          ;(async()=>{
+            console.log('FULL_SCALE_INPUT_BYTES',fs.statSync(zip).size)
+            const context=await chromium.launchPersistentContext(
+              fs.mkdtempSync(path.join(os.tmpdir(),'threadline-fullscale-')),
+              {headless:false,args:[`--disable-extensions-except=${build}`,`--load-extension=${build}`,'--no-first-run','--no-default-browser-check']}
+            )
+            const worker=await workerFor(context)
+            const extensionId=new URL(worker.url()).host
+            const host=await context.newPage()
+            await host.goto('https://chatgpt.com/',{waitUntil:'domcontentloaded',timeout:30000})
+            await host.locator('#ai-memory-float-root').waitFor({state:'attached',timeout:15000})
+            const panel=await openPanel(host,worker)
+
+            const toggle=panel.getByRole('button',{name:/Import backup/i})
+            await toggle.click()
+            const provider=panel.locator('button').filter({hasText:'ChatGPT (conversations.json)'}).first()
+            await provider.waitFor({state:'visible',timeout:10000})
+            await provider.click({noWaitAfter:true})
+            const input=panel.locator('input[type="file"][accept*=".zip"]').last()
+
+            const start=Date.now()
+            await input.setInputFiles(zip)
+            let status=''
+            while(Date.now()-start<12*60*1000){
+              status=(await panel.innerText()).replace(/\s+/g,' ')
+              if(/Successfully imported \d+ .* from ChatGPT|ChatGPT: imported \d+ new/i.test(status)) break
+              if(/failed to import|import failed/i.test(status)) throw new Error('Full-scale import failed: '+status)
+              await sleep(1000)
+            }
+            if(!/Successfully imported \d+ .* from ChatGPT|ChatGPT: imported \d+ new/i.test(status)){
+              throw new Error('Full-scale import timed out: '+status)
+            }
+            console.log('FULL_SCALE_IMPORT_MS',Date.now()-start)
+            console.log('FULL_SCALE_STATUS',status.slice(-1000))
+
+            const ext=await context.newPage()
+            await ext.goto(`chrome-extension://${extensionId}/tabs/memory-graph.html`)
+            const all=await allMemories(ext)
+            const stress=all.filter(r=>String(r.sessionId||'').startsWith('openai:fullscale-'))
+            const sessions=new Set(stress.map(r=>r.sessionId))
+            console.log('FULL_SCALE_RECORDS',stress.length,'SESSIONS',sessions.size)
+            if(sessions.size!==94) throw new Error('Expected 94 full-scale sessions, got '+sessions.size)
+            if(stress.length!==188) throw new Error('Expected 188 full-scale records, got '+stress.length)
+
+            const search=await runtimeMessage(ext,{type:'SEARCH_MEMORIES',payload:{query:'FULLSCALE_ANSWER_093',topK:5}})
+            const results=search?.payload?.results||[]
+            if(!results.some(r=>String(r.content||'').includes('FULLSCALE_ANSWER_093'))){
+              throw new Error('Last full-scale conversation not searchable')
+            }
+
+            // Reopen extension page once to make sure the giant import is actually durable.
+            await ext.close()
+            const ext2=await context.newPage()
+            await ext2.goto(`chrome-extension://${extensionId}/tabs/memory-graph.html`)
+            const reopened=await allMemories(ext2)
+            const reopenedSessions=new Set(reopened.filter(r=>String(r.sessionId||'').startsWith('openai:fullscale-')).map(r=>r.sessionId))
+            if(reopenedSessions.size!==94) throw new Error('Full-scale sessions lost after reopen')
+            await context.close()
+            console.log('FULL_SCALE_ARCHIVE_E2E_PASS')
+          })().catch(e=>{console.error(e);process.exit(1)})
+          NODE
+          xvfb-run -a node /tmp/full-scale-e2e.cjs
