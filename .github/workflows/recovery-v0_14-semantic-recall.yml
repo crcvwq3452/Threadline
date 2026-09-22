@@ -206,6 +206,17 @@ jobs:
               throw new Error('Semantic-only query did not recover embedded memory')
             }
 
+            // Current Authority must be loaded at Recall confirmation time.
+            await ext.evaluate(async()=>{
+              await chrome.storage.local.set({
+                threadlineCurrentAuthorityRules:[
+                  {id:'global-active',text:'CURRENT_RULE_GLOBAL_SENTINEL',status:'active',scope:'global',updatedAt:3},
+                  {id:'session-active',text:'CURRENT_RULE_SESSION_SENTINEL',status:'active',scope:'session:openai:semantic-recall-e2e',updatedAt:2},
+                  {id:'retired',text:'CURRENT_RULE_RETIRED_SENTINEL',status:'retired',scope:'global',updatedAt:4}
+                ]
+              })
+            })
+
             // Actual Recall content script. CI's logged-out ChatGPT page may not render a
             // composer, so use the live composer when present; otherwise mount the same
             // production hooks (#prompt-textarea + composer speech container) and let
@@ -291,6 +302,9 @@ jobs:
             if(!injected.includes('CURRENT AUTHORITY')) throw new Error('Injected prompt missing CURRENT AUTHORITY section')
             if(!injected.includes('RETRIEVED HISTORICAL EVIDENCE')) throw new Error('Injected prompt missing historical evidence label')
             if(!injected.includes('SEMANTIC_MEMORY_SENTINEL')) throw new Error('Injected prompt missing selected memory')
+            if(!injected.includes('CURRENT_RULE_GLOBAL_SENTINEL')) throw new Error('Injected prompt missing global Current Authority rule')
+            if(!injected.includes('CURRENT_RULE_SESSION_SENTINEL')) throw new Error('Injected prompt missing session Current Authority rule')
+            if(injected.includes('CURRENT_RULE_RETIRED_SENTINEL')) throw new Error('Injected prompt included retired Current Authority rule')
 
             await context.close()
             console.log('SEMANTIC_RECALL_E2E_PASS')
