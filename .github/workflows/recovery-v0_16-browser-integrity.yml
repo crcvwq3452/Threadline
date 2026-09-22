@@ -189,8 +189,7 @@ jobs:
 
             const reportText=/Stored:\s*2;\s*skipped:\s*0/i
             await panel.getByText(reportText).waitFor({state:'visible',timeout:30000})
-            const storedReport=await host.evaluate(()=>new Promise(resolve=>{
-              chrome.runtime.sendMessage({type:'GET_CAPTURE_MODE'},()=>{})
+            const storedReport=await graph.evaluate(()=>new Promise(resolve=>{
               chrome.storage.local.get(['threadlineLastImportReport']).then(x=>resolve(x.threadlineLastImportReport))
             }))
             console.log('PERSISTED_REPORT',JSON.stringify(storedReport))
