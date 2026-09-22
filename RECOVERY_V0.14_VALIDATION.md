@@ -174,3 +174,23 @@ No automated test can honestly establish these without the user's own authentica
 Those are the remaining first-use/environment checks. They are not known software failures.
 
 The real 94-chat corpus was never uploaded to GitHub or GitHub Actions.
+
+
+## v0.15 floating-panel visibility fix
+
+A real user trial exposed a UI defect in v0.14: when the floating panel was height-constrained, the Favorite/Import/Export regions could flex-shrink behind `overflow: hidden`, making import options and lower controls inaccessible.
+
+v0.15 changes the menu to a single vertical scroll viewport and gives the floating panel a definite effective height so scrolling has a real containing box.
+
+Dedicated Chromium acceptance used a **900 × 420** viewport:
+
+- visible menu viewport: **302 px**;
+- menu content before expanding import: **569 px**;
+- menu content after expanding import: **805 px**;
+- scrollTop reached **503 px**;
+- **Export backup** was reachable inside the visible panel;
+- **ChatGPT (conversations.json)** was reachable inside the visible panel;
+- collapse/reopen of Import remained usable;
+- result: `SHORT_PANEL_UI_E2E_PASS`.
+
+On the same v0.15 source head, semantic/Recall, durability/graph-authority, mocked ChatGPT history sync, and full-scale 94-entry archive acceptance all passed. One unrelated extended-acceptance rerun timed out while navigating to chatgpt.com before opening Threadline; the dedicated UI and recovery-critical suites were unaffected.
