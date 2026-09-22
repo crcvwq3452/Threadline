@@ -1,0 +1,322 @@
+name: Recovery v0.14 extended acceptance
+
+on:
+  pull_request:
+    branches:
+      - recovery-v0.11-ci-base
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  extended:
+    name: Persistence · Idempotency · JSON · Long chunks · 94-chat stress
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.25.0
+          run_install: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Frozen install
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check
+        run: pnpm exec tsc --noEmit
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Production build
+        run: pnpm build
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Generate acceptance fixtures
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, zipfile, random, string, pathlib
+          out = pathlib.Path('/tmp/threadline-extended')
+          out.mkdir(exist_ok=True)
+
+          def msg(mid, role, text, ts, end_turn=True):
+              return {
+                  'id': mid,
+                  'author': {'role': role, 'name': None, 'metadata': {}},
+                  'create_time': ts,
+                  'update_time': None,
+                  'content': {'content_type': 'text', 'parts': [text]},
+                  'status': 'finished_successfully',
+                  'end_turn': end_turn if role == 'assistant' else None,
+                  'weight': 1.0,
+                  'metadata': {},
+                  'recipient': 'all',
+              }
+
+          def branch_conv(cid='branch-e2e'):
+              return {
+                  'id': cid, 'conversation_id': cid, 'title': 'Branch Persistence',
+                  'create_time': 1700100000, 'update_time': 1700100100,
+                  'current_node': 'a-main',
+                  'mapping': {
+                      'root': {'id':'root','message':None,'parent':None,'children':['u1']},
+                      'u1': {'id':'u1','message':msg('u1','user','BRANCH_QUESTION',1700100001),'parent':'root','children':['a-main','a-side']},
+                      'a-main': {'id':'a-main','message':msg('a-main','assistant','MAIN_PERSIST_SENTINEL',1700100002),'parent':'u1','children':[]},
+                      'a-side': {'id':'a-side','message':msg('a-side','assistant','SIDE_PERSIST_SENTINEL',1700100003),'parent':'u1','children':[]},
+                  }
+              }
+
+          branch = branch_conv()
+          with zipfile.ZipFile(out/'branch.zip','w',zipfile.ZIP_DEFLATED) as z:
+              z.writestr('conversations.json', json.dumps([branch]))
+
+          direct = {
+              'id':'direct-json-e2e','conversation_id':'direct-json-e2e','title':'Direct JSON',
+              'create_time':1700200000,'update_time':1700200004,'current_node':'dj-a',
+              'mapping':{
+                  'dj-root':{'id':'dj-root','message':None,'parent':None,'children':['dj-u']},
+                  'dj-u':{'id':'dj-u','message':msg('dj-u','user','DIRECT_JSON_QUESTION',1700200001),'parent':'dj-root','children':['dj-a']},
+                  'dj-a':{'id':'dj-a','message':msg('dj-a','assistant','DIRECT_JSON_SENTINEL',1700200002),'parent':'dj-u','children':[]},
+              }
+          }
+          (out/'direct.json').write_text(json.dumps([direct]), encoding='utf-8')
+
+          # Long text crosses many 500 UTF-16 chunks and includes surrogate pairs.
+          long_text = ('A'*493 + '😀' + 'B'*510 + '\nLONG_CHUNK_SEARCH_SENTINEL\n' + 'C'*1100 + '🧠' + 'D'*777)
+          long_conv = {
+              'id':'long-e2e','conversation_id':'long-e2e','title':'Long Chunk Exactness',
+              'create_time':1700300000,'update_time':1700300004,'current_node':'lg-a',
+              'mapping':{
+                  'lg-root':{'id':'lg-root','message':None,'parent':None,'children':['lg-u']},
+                  'lg-u':{'id':'lg-u','message':msg('lg-u','user','LONG_QUESTION',1700300001),'parent':'lg-root','children':['lg-a']},
+                  'lg-a':{'id':'lg-a','message':msg('lg-a','assistant',long_text,1700300002),'parent':'lg-u','children':[]},
+              }
+          }
+          with zipfile.ZipFile(out/'long.zip','w',zipfile.ZIP_DEFLATED) as z:
+              z.writestr('conversations.json', json.dumps([long_conv], ensure_ascii=False))
+          (out/'long_expected.txt').write_text(long_text, encoding='utf-8')
+
+          # 94-conversation topology/byte stress. Opaque random padding exercises ZIP
+          # parsing/hashing without exploding stored recovery records.
+          rng = random.Random(20260922)
+          alphabet = string.ascii_letters + string.digits
+          convs=[]
+          padding_len=131072  # 128 KiB each ~= 12 MiB uncompressed overall
+          for i in range(94):
+              cid=f'stress-{i:03d}'
+              pad=''.join(rng.choice(alphabet) for _ in range(padding_len))
+              c={
+                  'id':cid,'conversation_id':cid,'title':f'Stress {i:03d}',
+                  'create_time':1700400000+i*10,'update_time':1700400005+i*10,
+                  'current_node':f'{cid}-a',
+                  'opaque_padding':pad,
+                  'mapping':{
+                      f'{cid}-root':{'id':f'{cid}-root','message':None,'parent':None,'children':[f'{cid}-u']},
+                      f'{cid}-u':{'id':f'{cid}-u','message':msg(f'{cid}-u','user',f'STRESS_QUESTION_{i:03d}',1700400001+i*10),'parent':f'{cid}-root','children':[f'{cid}-a']},
+                      f'{cid}-a':{'id':f'{cid}-a','message':msg(f'{cid}-a','assistant',f'STRESS_ANSWER_{i:03d}',1700400002+i*10),'parent':f'{cid}-u','children':[]},
+                  }
+              }
+              convs.append(c)
+          with zipfile.ZipFile(out/'stress94.zip','w',zipfile.ZIP_DEFLATED,compresslevel=6) as z:
+              z.writestr('conversations.json', json.dumps(convs))
+          print('fixture sizes:')
+          for p in sorted(out.iterdir()):
+              print(p.name, p.stat().st_size)
+          PY
+
+      - name: Extended Chromium acceptance
+        shell: bash
+        run: |
+          cat > /tmp/threadline-extended-e2e.cjs <<'NODE'
+          const fs = require('fs')
+          const path = require('path')
+          const os = require('os')
+          const { chromium } = require('@playwright/test')
+
+          const root = process.cwd()
+          const build = path.join(root, 'build', 'chrome-mv3-prod')
+          const fixtures = '/tmp/threadline-extended'
+          const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'threadline-extended-'))
+
+          const sleep = (ms) => new Promise(r => setTimeout(r, ms))
+
+          async function workerFor(context) {
+            return context.serviceWorkers()[0] || await context.waitForEvent('serviceworker', {timeout:15000})
+          }
+
+          async function allMemories(extPage) {
+            return extPage.evaluate(() => new Promise((resolve, reject) => {
+              const req = indexedDB.open('AIMemoryDB')
+              req.onerror = () => reject(req.error)
+              req.onsuccess = () => {
+                const db=req.result
+                const tx=db.transaction('memories','readonly')
+                const q=tx.objectStore('memories').getAll()
+                q.onerror=()=>reject(q.error)
+                q.onsuccess=()=>resolve(q.result)
+              }
+            }))
+          }
+
+          async function runtimeMessage(page, message) {
+            return page.evaluate((msg) => new Promise((resolve, reject) => {
+              chrome.runtime.sendMessage(msg, (response) => {
+                if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message))
+                else resolve(response)
+              })
+            }), message)
+          }
+
+          function sessionRecords(all, sid) {
+            return all.filter(r => r.sessionId === sid)
+          }
+
+          function reconstruct(records, logicalId) {
+            const direct=records.find(r=>r.id===logicalId)
+            if (direct) return direct.content
+            const chunks=records.filter(r=>r.parentId===logicalId)
+              .sort((a,b)=>(a.chunkIndex??0)-(b.chunkIndex??0))
+            if (!chunks.length) throw new Error('No direct/chunk records for '+logicalId)
+            let expected=0, out=''
+            for (const c of chunks) {
+              const s=c.metadata?.chunkStartUtf16
+              const len=c.metadata?.chunkLengthUtf16
+              if (typeof s !== 'number' || typeof len !== 'number') throw new Error('Missing offsets')
+              if (s !== expected) throw new Error(`Gap/overlap at ${logicalId}: ${s} != ${expected}`)
+              if (c.content.length !== len) throw new Error('chunkLengthUtf16 mismatch')
+              out += c.content
+              expected += len
+            }
+            return out
+          }
+
+          async function openPanel(page, worker) {
+            const result = await worker.evaluate(async () => {
+              const tabs=await chrome.tabs.query({})
+              const tab=tabs.find(t=>(t.url||'').startsWith('https://chatgpt.com/'))
+              if (!tab?.id) return {ok:false}
+              await chrome.tabs.sendMessage(tab.id,{type:'OPEN_MEMORY_PANEL'})
+              return {ok:true}
+            })
+            if(!result.ok) throw new Error('Could not open panel')
+            const panel=page.getByRole('dialog',{name:/Threadline panel/i})
+            await panel.waitFor({state:'visible',timeout:15000})
+            return panel
+          }
+
+          async function importFile(panel, filePath, timeout=90000) {
+            const toggle=panel.getByRole('button',{name:/Import backup/i})
+            await toggle.click()
+            const provider=panel.getByRole('button',{name:'ChatGPT (conversations.json)',exact:true})
+            await provider.waitFor({state:'visible',timeout:10000})
+            await provider.click({noWaitAfter:true})
+            const input=panel.locator('input[type="file"][accept*=".json"]').last()
+            await input.setInputFiles(filePath)
+            const start=Date.now()
+            while(Date.now()-start<timeout){
+              const txt=(await panel.innerText()).replace(/\s+/g,' ')
+              if(/Successfully imported \d+ .* from ChatGPT|ChatGPT: imported \d+ new|already imported/i.test(txt)) return txt
+              if(/import failed|failed to import/i.test(txt)) throw new Error('Import failure UI: '+txt)
+              await sleep(250)
+            }
+            throw new Error('Import timeout for '+filePath)
+          }
+
+          ;(async()=>{
+            if(!fs.existsSync(path.join(build,'manifest.json'))) throw new Error('Missing built extension')
+            const context=await chromium.launchPersistentContext(userDataDir,{
+              headless:false,
+              args:[`--disable-extensions-except=${build}`,`--load-extension=${build}`,'--no-first-run','--no-default-browser-check']
+            })
+            let worker=await workerFor(context)
+            const extensionId=new URL(worker.url()).host
+
+            const host=await context.newPage()
+            await host.goto('https://chatgpt.com/',{waitUntil:'domcontentloaded',timeout:30000})
+            await host.locator('#ai-memory-float-root').waitFor({state:'attached',timeout:15000})
+            let panel=await openPanel(host,worker)
+
+            // 1) Branch ZIP + duplicate idempotency.
+            console.log('CASE branch import')
+            console.log(await importFile(panel, path.join(fixtures,'branch.zip')))
+            const ext=await context.newPage()
+            await ext.goto(`chrome-extension://${extensionId}/tabs/memory-graph.html`)
+            let all=await allMemories(ext)
+            let branch=sessionRecords(all,'openai:branch-e2e')
+            const firstIds=new Set(branch.map(r=>r.id))
+            if(!branch.some(r=>r.content.includes('SIDE_PERSIST_SENTINEL'))) throw new Error('side branch missing')
+            console.log('CASE duplicate import')
+            console.log(await importFile(panel, path.join(fixtures,'branch.zip')))
+            all=await allMemories(ext)
+            branch=sessionRecords(all,'openai:branch-e2e')
+            const secondIds=new Set(branch.map(r=>r.id))
+            if(firstIds.size!==secondIds.size || [...firstIds].some(x=>!secondIds.has(x))) throw new Error('duplicate import changed stored identity set')
+
+            // 2) Direct .json path.
+            console.log('CASE direct JSON')
+            console.log(await importFile(panel, path.join(fixtures,'direct.json')))
+            all=await allMemories(ext)
+            const direct=sessionRecords(all,'openai:direct-json-e2e')
+            if(!direct.some(r=>r.content.includes('DIRECT_JSON_SENTINEL'))) throw new Error('direct JSON import missing')
+
+            // 3) Long chunk exactness + lexical search.
+            console.log('CASE long chunks')
+            console.log(await importFile(panel, path.join(fixtures,'long.zip')))
+            all=await allMemories(ext)
+            const long=sessionRecords(all,'openai:long-e2e')
+            const expected=fs.readFileSync(path.join(fixtures,'long_expected.txt'),'utf8')
+            const rebuilt=reconstruct(long,'lg-a')
+            if(rebuilt!==expected) throw new Error(`long reconstruction mismatch ${rebuilt.length} vs ${expected.length}`)
+            if(long.filter(r=>r.parentId==='lg-a').some(r=>r.content.length>500)) throw new Error('long chunk >500 UTF-16')
+            const longSearch=await runtimeMessage(ext,{type:'SEARCH_MEMORIES',payload:{query:'LONG_CHUNK_SEARCH_SENTINEL',topK:5}})
+            if(!(longSearch?.payload?.results||[]).some(r=>String(r.content||'').includes('LONG_CHUNK_SEARCH_SENTINEL'))) throw new Error('long sentinel search failed')
+
+            // 4) 94-conversation byte/topology stress.
+            console.log('CASE stress94')
+            const stressStart=Date.now()
+            console.log(await importFile(panel, path.join(fixtures,'stress94.zip'), 150000))
+            console.log('stress94 import ms',Date.now()-stressStart)
+            all=await allMemories(ext)
+            const stressSessions=new Set(all.filter(r=>String(r.sessionId||'').startsWith('openai:stress-')).map(r=>r.sessionId))
+            if(stressSessions.size!==94) throw new Error(`expected 94 stress sessions, got ${stressSessions.size}`)
+            const stressSearch=await runtimeMessage(ext,{type:'SEARCH_MEMORIES',payload:{query:'STRESS_ANSWER_093',topK:5}})
+            if(!(stressSearch?.payload?.results||[]).some(r=>String(r.content||'').includes('STRESS_ANSWER_093'))) throw new Error('stress final conversation not searchable')
+
+            // 5) Reopen extension page and re-check persistence/search.
+            console.log('CASE reopen persistence')
+            await ext.close()
+            await sleep(500)
+            const ext2=await context.newPage()
+            await ext2.goto(`chrome-extension://${extensionId}/tabs/memory-graph.html`)
+            const reopened=await allMemories(ext2)
+            const rb=sessionRecords(reopened,'openai:branch-e2e')
+            if(!rb.some(r=>r.content.includes('SIDE_PERSIST_SENTINEL'))) throw new Error('side branch lost after reopen')
+            const after=await runtimeMessage(ext2,{type:'SEARCH_MEMORIES',payload:{query:'SIDE_PERSIST_SENTINEL',topK:5}})
+            if(!(after?.payload?.results||[]).some(r=>String(r.content||'').includes('SIDE_PERSIST_SENTINEL'))) throw new Error('search failed after reopen')
+
+            console.log(JSON.stringify({
+              totalRecords: reopened.length,
+              branchRecords: rb.length,
+              directRecords: sessionRecords(reopened,'openai:direct-json-e2e').length,
+              longRecords: sessionRecords(reopened,'openai:long-e2e').length,
+              stressSessions: new Set(reopened.filter(r=>String(r.sessionId||'').startsWith('openai:stress-')).map(r=>r.sessionId)).size
+            }))
+            await context.close()
+            console.log('EXTENDED_BROWSER_ACCEPTANCE_PASS')
+          })().catch(e=>{console.error(e);process.exit(1)})
+          NODE
+          xvfb-run -a node /tmp/threadline-extended-e2e.cjs
