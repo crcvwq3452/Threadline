@@ -223,8 +223,14 @@ jobs:
           async function importFile(panel, filePath, timeout=90000) {
             const toggle=panel.getByRole('button',{name:/Import backup/i})
             await toggle.click()
-            const provider=panel.getByRole('button',{name:'ChatGPT (conversations.json)',exact:true})
-            await provider.waitFor({state:'visible',timeout:10000})
+            const provider=panel.locator('button').filter({hasText:'ChatGPT (conversations.json)'}).first()
+            try {
+              await provider.waitFor({state:'visible',timeout:10000})
+            } catch (err) {
+              console.log('IMPORT_PANEL_TEXT', (await panel.innerText()).replace(/\\s+/g,' ').slice(0,3000))
+              console.log('IMPORT_BUTTONS', JSON.stringify(await panel.locator('button').allTextContents()))
+              throw err
+            }
             await provider.click({noWaitAfter:true})
             const input=panel.locator('input[type="file"][accept*=".json"]').last()
             await input.setInputFiles(filePath)
