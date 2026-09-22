@@ -300,19 +300,35 @@ jobs:
 
             const chatgptButton = page.getByRole('button', { name: /ChatGPT/i }).first()
             await chatgptButton.waitFor({ state: 'visible', timeout: 10000 })
-            const chooserPromise = page.waitForEvent('filechooser')
-            await chatgptButton.click()
-            const chooser = await chooserPromise
-            await chooser.setFiles('/tmp/chatgpt-recovery-e2e.zip')
+            await chatgptButton.click({ noWaitAfter: true })
 
-            await page.waitForFunction(() => {
-              const text = document.body.innerText
-              return /Successfully imported|imported \d+ new|failed|error/i.test(text)
-            }, null, { timeout: 30000 })
+            const fileInputs = page.locator('input[type="file"]')
+            const fileInputCount = await fileInputs.count()
+            const inputMeta = []
+            for (let i = 0; i < fileInputCount; i++) {
+              inputMeta.push({
+                index: i,
+                accept: await fileInputs.nth(i).getAttribute('accept'),
+              })
+            }
+            console.log('E2E file inputs:', JSON.stringify(inputMeta))
+            const providerInput = page.locator('input[type="file"][accept*=".zip"]').first()
+            await providerInput.waitFor({ state: 'attached', timeout: 10000 })
+            await providerInput.setInputFiles('/tmp/chatgpt-recovery-e2e.zip')
 
+            const successStatus = page.getByText(
+              /Successfully imported \d+ .* from ChatGPT|ChatGPT: imported \d+ new/i,
+            ).first()
+            const failureStatus = page.getByText(
+              /Import from ChatGPT failed|ChatGPT import failed|failed to import.*ChatGPT/i,
+            ).first()
+            const outcome = await Promise.race([
+              successStatus.waitFor({ state: 'visible', timeout: 30000 }).then(() => 'success'),
+              failureStatus.waitFor({ state: 'visible', timeout: 30000 }).then(() => 'failure'),
+            ])
             const bodyText = await page.locator('body').innerText()
             console.log('E2E floating-panel status:', bodyText.replace(/\s+/g, ' ').slice(-1200))
-            if (/failed|error/i.test(bodyText) && !/Successfully imported/i.test(bodyText)) {
+            if (outcome !== 'success') {
               throw new Error(`Floating panel reported import failure: ${bodyText}`)
             }
 
