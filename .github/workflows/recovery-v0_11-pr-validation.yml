@@ -69,9 +69,11 @@ jobs:
         working-directory: target
         run: pnpm test
 
-      - name: Integration tests
-        working-directory: target
-        run: pnpm test:integration
+      - name: Recovery patch contracts and integration checks
+        shell: bash
+        run: |
+          export PATH="$GITHUB_WORKSPACE/target/node_modules/.bin:$PATH"
+          bash /tmp/threadline-v0_14/threadline_recovery_patch_v0_14/tests/run-all.sh
 
       - name: Production build
         working-directory: target
