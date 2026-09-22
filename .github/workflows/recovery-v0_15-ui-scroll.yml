@@ -91,14 +91,18 @@ jobs:
             console.log('MENU_BEFORE',JSON.stringify(before))
             if(before.overflowY!=='auto' && before.overflowY!=='scroll')throw new Error('Menu is not vertically scrollable')
 
-            const importBtn=panel.getByRole('button',{name:/Import backup/i})
-            await importBtn.scrollIntoViewIfNeeded()
+            // Move to the lower controls, reacquire the button after scrolling, and open it.
+            await scroll.evaluate(el=>{ el.scrollTop = el.scrollHeight })
+            await page.waitForTimeout(200)
+            let importBtn=panel.getByRole('button',{name:/Import backup/i})
+            if(!(await importBtn.count())) throw new Error('Import backup button missing')
             await importBtn.click()
+            await page.waitForTimeout(200)
 
-            const choose=panel.getByText(/CHOOSE IMPORT TYPE/i)
+            let choose=panel.getByText(/CHOOSE IMPORT TYPE/i)
             await choose.waitFor({state:'visible',timeout:10000})
 
-            // Scroll the actual menu viewport, then reacquire controls after React settles.
+            // Scroll the actual menu viewport again after the importer list expands.
             await scroll.evaluate(el=>{ el.scrollTop = el.scrollHeight })
             await page.waitForTimeout(250)
 
@@ -129,12 +133,14 @@ jobs:
             console.log('CHATGPT_OPTION_BOX',JSON.stringify(cb))
             if(cb.y < pb.y || cb.y+cb.height > pb.y+pb.height+1)throw new Error('ChatGPT importer remains clipped')
 
-            // Collapse/reopen import after scrolling; controls must stay usable.
+            // Collapse/reopen import after scrolling; reacquire each React node.
+            await scroll.evaluate(el=>{ el.scrollTop = el.scrollHeight })
+            await page.waitForTimeout(150)
             let importBtnAgain=panel.getByRole('button',{name:/Import backup/i})
-            await importBtnAgain.evaluate(el=>el.scrollIntoView({block:'nearest'}))
+            if(!(await importBtnAgain.count())) throw new Error('Import backup missing before collapse')
+            await importBtnAgain.click()
             await page.waitForTimeout(150)
             importBtnAgain=panel.getByRole('button',{name:/Import backup/i})
-            await importBtnAgain.click()
             await importBtnAgain.click()
             await page.waitForTimeout(150)
             chatgpt=panel.locator('button').filter({hasText:'ChatGPT (conversations.json)'}).first()
