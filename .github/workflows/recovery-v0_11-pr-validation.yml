@@ -267,32 +267,32 @@ jobs:
             console.log('E2E extension ID:', extensionId)
 
             const manifest = JSON.parse(fs.readFileSync(path.join(extensionPath, 'manifest.json'), 'utf8'))
-            console.log('E2E built manifest:', JSON.stringify(manifest, null, 2))
-            const htmlFiles = []
-            const walk = (dir, prefix = '') => {
-              for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-                const rel = prefix ? `${prefix}/${entry.name}` : entry.name
-                const abs = path.join(dir, entry.name)
-                if (entry.isDirectory()) walk(abs, rel)
-                else if (entry.name.endsWith('.html')) htmlFiles.push(rel)
-              }
-            }
-            walk(extensionPath)
-            console.log('E2E built HTML files:', htmlFiles)
-            const popupPath =
-              manifest.action?.default_popup ||
-              manifest.browser_action?.default_popup ||
-              htmlFiles.find((p) => /popup/i.test(p)) ||
-              htmlFiles.find((p) => /index\.html$/i.test(p))
-            if (!popupPath) throw new Error(`No extension HTML entry found. Files: ${JSON.stringify(htmlFiles)}`)
-            console.log('E2E chosen popup/UI path:', popupPath)
+            console.log('E2E built manifest action:', JSON.stringify(manifest.action || {}))
+
             const page = await context.newPage()
-            page.on('pageerror', (e) => errors.push(`popup pageerror: ${e.message}`))
+            page.on('pageerror', (e) => errors.push(`host pageerror: ${e.message}`))
             page.on('console', (m) => {
-              if (m.type() === 'error') errors.push(`popup console: ${m.text()}`)
+              if (m.type() === 'error') errors.push(`host console: ${m.text()}`)
             })
-            await page.goto(`chrome-extension://${extensionId}/${popupPath}`)
-            await page.waitForLoadState('domcontentloaded')
+            await page.goto('https://example.com/', { waitUntil: 'domcontentloaded' })
+
+            const panelOpened = await worker.evaluate(async () => {
+              const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+              for (let attempt = 0; attempt < 30; attempt++) {
+                const tabs = await chrome.tabs.query({})
+                const tab = tabs.find((t) => (t.url || '').startsWith('https://example.com/'))
+                if (tab?.id) {
+                  try {
+                    await chrome.tabs.sendMessage(tab.id, { type: 'OPEN_MEMORY_PANEL' })
+                    return { ok: true, tabId: tab.id }
+                  } catch {}
+                }
+                await sleep(200)
+              }
+              return { ok: false }
+            })
+            console.log('E2E floating panel open:', JSON.stringify(panelOpened))
+            if (!panelOpened?.ok) throw new Error('Could not open Threadline floating panel on host page')
 
             const importToggle = page.getByRole('button', { name: /Import backup/i })
             await importToggle.waitFor({ state: 'visible', timeout: 15000 })
@@ -311,12 +311,17 @@ jobs:
             }, null, { timeout: 30000 })
 
             const bodyText = await page.locator('body').innerText()
-            console.log('E2E popup status:', bodyText.replace(/\s+/g, ' ').slice(-900))
+            console.log('E2E floating-panel status:', bodyText.replace(/\s+/g, ' ').slice(-1200))
             if (/failed|error/i.test(bodyText) && !/Successfully imported/i.test(bodyText)) {
-              throw new Error(`Popup reported import failure: ${bodyText}`)
+              throw new Error(`Floating panel reported import failure: ${bodyText}`)
             }
 
-            const all = await readMemories(page)
+            const extensionPage = await context.newPage()
+            await extensionPage.goto(`chrome-extension://${extensionId}/tabs/memory-graph.html`)
+            await extensionPage.waitForLoadState('domcontentloaded')
+
+            const all = await readMemories(extensionPage)
+
             const records = all.filter((r) => r.sessionId === 'openai:e2e-conv-1')
             console.log('E2E stored records:', JSON.stringify(records.map((r) => ({
               id: r.id,
@@ -347,7 +352,7 @@ jobs:
               if (!originals.has(id)) throw new Error(`Missing originalMessageId ${id}`)
             }
 
-            const search = await runtimeMessage(page, {
+            const search = await runtimeMessage(extensionPage, {
               type: 'SEARCH_MEMORIES',
               payload: { query: 'SIDE_BRANCH_SENTINEL', topK: 5 },
             })
