@@ -1,1 +1,1 @@
-recovery-v0.14 chromium-e2e-ui-discovery trigger
+recovery-v0.14 floating-panel-e2e trigger
