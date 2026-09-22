@@ -72,7 +72,15 @@ jobs:
       - name: Recovery patch contracts and integration checks
         shell: bash
         run: |
-          export PATH="$GITHUB_WORKSPACE/target/node_modules/.bin:$PATH"
+          npx() {
+            if [ "${1:-}" = "tsc" ]; then
+              shift
+              "$GITHUB_WORKSPACE/target/node_modules/.bin/tsc" "$@"
+            else
+              command npx "$@"
+            fi
+          }
+          export -f npx
           bash /tmp/threadline-v0_14/threadline_recovery_patch_v0_14/tests/run-all.sh
 
       - name: Production build
