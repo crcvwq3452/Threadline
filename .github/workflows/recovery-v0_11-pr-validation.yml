@@ -275,34 +275,41 @@ jobs:
               if (m.type() === 'error') errors.push(`host console: ${m.text()}`)
             })
             await page.goto('https://chatgpt.com/', { waitUntil: 'domcontentloaded', timeout: 30000 })
+            const floatRoot = page.locator('#ai-memory-float-root')
+            await floatRoot.waitFor({ state: 'attached', timeout: 15000 })
+            await page.waitForFunction(() => {
+              const root = document.getElementById('ai-memory-float-root')
+              return !!root && root.childElementCount > 0
+            }, null, { timeout: 15000 })
+            console.log('E2E floating root mounted')
 
             const panelOpened = await worker.evaluate(async () => {
-              const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
-              for (let attempt = 0; attempt < 30; attempt++) {
-                const tabs = await chrome.tabs.query({})
-                const tab = tabs.find((t) => (t.url || '').startsWith('https://chatgpt.com/'))
-                if (tab?.id) {
-                  try {
-                    await chrome.tabs.sendMessage(tab.id, { type: 'OPEN_MEMORY_PANEL' })
-                    return { ok: true, tabId: tab.id }
-                  } catch {}
-                }
-                await sleep(200)
+              const tabs = await chrome.tabs.query({})
+              const tab = tabs.find((t) => (t.url || '').startsWith('https://chatgpt.com/'))
+              if (!tab?.id) return { ok: false, reason: 'chatgpt tab missing' }
+              try {
+                await chrome.tabs.sendMessage(tab.id, { type: 'OPEN_MEMORY_PANEL' })
+                return { ok: true, tabId: tab.id }
+              } catch (err) {
+                return { ok: false, reason: String(err) }
               }
-              return { ok: false }
             })
-            console.log('E2E floating panel open:', JSON.stringify(panelOpened))
-            if (!panelOpened?.ok) throw new Error('Could not open Threadline floating panel on host page')
+            console.log('E2E floating panel message:', JSON.stringify(panelOpened))
+            if (!panelOpened?.ok) throw new Error(`Could not message Threadline floating panel: ${JSON.stringify(panelOpened)}`)
 
-            const importToggle = page.getByRole('button', { name: /Import backup/i })
+            const panel = page.getByRole('dialog', { name: /Threadline panel/i })
+            await panel.waitFor({ state: 'visible', timeout: 15000 })
+            console.log('E2E floating panel visible')
+
+            const importToggle = panel.getByRole('button', { name: /Import backup/i })
             await importToggle.waitFor({ state: 'visible', timeout: 15000 })
             await importToggle.click()
 
-            const chatgptButton = page.getByRole('button', { name: /ChatGPT/i }).first()
+            const chatgptButton = panel.getByRole('button', { name: /ChatGPT/i }).first()
             await chatgptButton.waitFor({ state: 'visible', timeout: 10000 })
             await chatgptButton.click({ noWaitAfter: true })
 
-            const fileInputs = page.locator('input[type="file"]')
+            const fileInputs = panel.locator('input[type="file"]')
             const fileInputCount = await fileInputs.count()
             const inputMeta = []
             for (let i = 0; i < fileInputCount; i++) {
@@ -312,14 +319,14 @@ jobs:
               })
             }
             console.log('E2E file inputs:', JSON.stringify(inputMeta))
-            const providerInput = page.locator('input[type="file"][accept*=".zip"]').first()
+            const providerInput = panel.locator('input[type="file"][accept*=".zip"]').first()
             await providerInput.waitFor({ state: 'attached', timeout: 10000 })
             await providerInput.setInputFiles('/tmp/chatgpt-recovery-e2e.zip')
 
-            const successStatus = page.getByText(
+            const successStatus = panel.getByText(
               /Successfully imported \d+ .* from ChatGPT|ChatGPT: imported \d+ new/i,
             ).first()
-            const failureStatus = page.getByText(
+            const failureStatus = panel.getByText(
               /Import from ChatGPT failed|ChatGPT import failed|failed to import.*ChatGPT/i,
             ).first()
             const outcome = await Promise.race([
