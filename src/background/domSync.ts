@@ -38,42 +38,50 @@ function drainSyncQueue(): void {
     });
 }
 
-export function enqueueSyncRecord(record: MemoryRecord): void {
-  _syncQueue.push(async () => {
-    const direct = await db.memories.get(record.id);
-    const existingChunks = direct
-      ? []
-      : await db.memories.where("parentId").equals(record.id).toArray();
-    const authoritySource = direct && !direct.isDeleted
-      ? direct
-      : [...existingChunks]
-          .filter((chunk) => !chunk.isDeleted)
-          .sort((a, b) => (a.chunkIndex ?? 0) - (b.chunkIndex ?? 0))[0];
-    const writeRecord = authoritySource
-      ? mergeIncomingWithAuthoritativeGraph(authoritySource, record)
-      : record;
-    const physical = expandToChunks(writeRecord);
+export function enqueueSyncRecord(record: MemoryRecord): Promise<void> {
+  return new Promise((resolve, reject) => {
+    _syncQueue.push(async () => {
+      try {
+        const direct = await db.memories.get(record.id);
+        const existingChunks = direct
+          ? []
+          : await db.memories.where("parentId").equals(record.id).toArray();
+        const authoritySource = direct && !direct.isDeleted
+          ? direct
+          : [...existingChunks]
+              .filter((chunk) => !chunk.isDeleted)
+              .sort((a, b) => (a.chunkIndex ?? 0) - (b.chunkIndex ?? 0))[0];
+        const writeRecord = authoritySource
+          ? mergeIncomingWithAuthoritativeGraph(authoritySource, record)
+          : record;
+        const physical = expandToChunks(writeRecord);
 
-    // One transaction replaces the entire logical message. A service-worker
-    // interruption can no longer commit c21 without c0..c20.
-    const removed = await db.replaceLogicalRecordAtomically(record.id, physical);
-    for (const stale of removed) {
-      try {
-        miniSearch.remove(stale);
-      } catch {
-        /* not indexed */
+        // One transaction replaces the entire logical message. A service-worker
+        // interruption can no longer commit c21 without c0..c20.
+        const removed = await db.replaceLogicalRecordAtomically(record.id, physical);
+        for (const stale of removed) {
+          try {
+            miniSearch.remove(stale);
+          } catch {
+            /* not indexed */
+          }
+        }
+        for (const chunk of physical) {
+          try {
+            miniSearch.add(chunk);
+          } catch {
+            /* duplicate id — already indexed */
+          }
+          queueEmbedding(chunk);
+        }
+        resolve();
+      } catch (err) {
+        reject(err);
+        throw err;
       }
-    }
-    for (const chunk of physical) {
-      try {
-        miniSearch.add(chunk);
-      } catch {
-        /* duplicate id — already indexed */
-      }
-      queueEmbedding(chunk);
-    }
+    });
+    drainSyncQueue();
   });
-  drainSyncQueue();
 }
 
 type ResolvedDomMessage = DomMessage & {
@@ -492,7 +500,7 @@ export async function handleDomSync(
       };
       // Atomic replacement handles short<->long transitions and repairs any
       // previously incomplete physical chunk group.
-      enqueueSyncRecord(refreshedRecord);
+      await enqueueSyncRecord(refreshedRecord);
     }
   }
 
@@ -545,7 +553,7 @@ export async function handleDomSync(
 
   if (shouldPersist) {
     for (const record of recordsToSave) {
-      enqueueSyncRecord(record);
+      await enqueueSyncRecord(record);
     }
     const attachmentsBySession = new Map<string, ResolvedDomMessage["attachments"]>();
     for (const msg of messages) {
