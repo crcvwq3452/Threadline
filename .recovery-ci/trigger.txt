@@ -1,1 +1,1 @@
-recovery-v0.14 node24-regression-harness trigger
+recovery-v0.14 chromium-e2e trigger
