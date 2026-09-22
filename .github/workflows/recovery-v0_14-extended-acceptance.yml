@@ -145,9 +145,11 @@ jobs:
           const fs = require('fs')
           const path = require('path')
           const os = require('os')
-          const { chromium } = require('@playwright/test')
+          const { createRequire } = require('module')
 
           const root = process.cwd()
+          const requireTarget = createRequire(path.join(root, 'package.json'))
+          const { chromium } = requireTarget('@playwright/test')
           const build = path.join(root, 'build', 'chrome-mv3-prod')
           const fixtures = '/tmp/threadline-extended'
           const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'threadline-extended-'))
