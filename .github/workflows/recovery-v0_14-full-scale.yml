@@ -178,11 +178,11 @@ jobs:
             let status=''
             while(Date.now()-start<12*60*1000){
               status=(await panel.innerText()).replace(/\s+/g,' ')
-              if(/Successfully imported \d+ .* from ChatGPT|ChatGPT: imported \d+ new/i.test(status)) break
+              if(/ChatGPT ZIP import complete|Successfully imported \d+ .* from ChatGPT|ChatGPT: imported \d+ new/i.test(status)) break
               if(/failed to import|import failed/i.test(status)) throw new Error('Full-scale import failed: '+status)
               await sleep(1000)
             }
-            if(!/Successfully imported \d+ .* from ChatGPT|ChatGPT: imported \d+ new/i.test(status)){
+            if(!/ChatGPT ZIP import complete|Successfully imported \d+ .* from ChatGPT|ChatGPT: imported \d+ new/i.test(status)){
               throw new Error('Full-scale import timed out: '+status)
             }
             console.log('FULL_SCALE_IMPORT_MS',Date.now()-start)
