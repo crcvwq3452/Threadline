@@ -1,0 +1,208 @@
+name: Recovery v0.14 mocked ChatGPT history acceptance
+
+on:
+  pull_request:
+    branches:
+      - recovery-v0.11-ci-base
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  history-sync:
+    name: Load all ChatGPT history · mocked backend API
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.25.0
+          run_install: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install and build
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Chromium mocked history-sync E2E
+        shell: bash
+        run: |
+          cat > /tmp/history-sync-e2e.cjs <<'NODE'
+          const fs=require('fs')
+          const path=require('path')
+          const os=require('os')
+          const {createRequire}=require('module')
+          const root=process.cwd()
+          const requireTarget=createRequire(path.join(root,'package.json'))
+          const {chromium}=requireTarget('@playwright/test')
+          const build=path.join(root,'build','chrome-mv3-prod')
+          const sleep=ms=>new Promise(r=>setTimeout(r,ms))
+
+          const a='22222222-2222-4222-8222-222222222222'
+          const b='33333333-3333-4333-8333-333333333333'
+
+          function msg(mid,role,text,ts,endTurn=true){
+            return {
+              id:mid,
+              author:{role,name:null,metadata:{}},
+              create_time:ts,
+              update_time:null,
+              content:{content_type:'text',parts:[text]},
+              status:'finished_successfully',
+              end_turn:role==='assistant'?endTurn:null,
+              weight:1.0,
+              metadata:{},
+              recipient:'all'
+            }
+          }
+          function detail(cid,title,branch=false){
+            const mapping={
+              root:{id:'root',message:null,parent:null,children:['u']},
+              u:{id:'u',message:msg('u','user',`HISTORY_QUESTION_${cid.slice(0,4)}`,1700800001),parent:'root',children:branch?['main','side']:['main']},
+              main:{id:'main',message:msg('main','assistant',`HISTORY_MAIN_${cid.slice(0,4)}`,1700800002),parent:'u',children:[]}
+            }
+            if(branch) mapping.side={id:'side',message:msg('side','assistant','HISTORY_SIDE_SENTINEL',1700800003),parent:'u',children:[]}
+            return {
+              id:cid,conversation_id:cid,title,
+              create_time:1700800000,update_time:1700800010,
+              current_node:'main',mapping
+            }
+          }
+
+          async function workerFor(context){
+            return context.serviceWorkers()[0] || await context.waitForEvent('serviceworker',{timeout:15000})
+          }
+          async function allMemories(page){
+            return page.evaluate(()=>new Promise((resolve,reject)=>{
+              const q=indexedDB.open('AIMemoryDB')
+              q.onerror=()=>reject(q.error)
+              q.onsuccess=()=>{
+                const db=q.result
+                const tx=db.transaction('memories','readonly')
+                const r=tx.objectStore('memories').getAll()
+                r.onerror=()=>reject(r.error)
+                r.onsuccess=()=>resolve(r.result)
+              }
+            }))
+          }
+          async function runtimeMessage(page,msg){
+            return page.evaluate(m=>new Promise((resolve,reject)=>{
+              chrome.runtime.sendMessage(m,r=>{
+                if(chrome.runtime.lastError)reject(new Error(chrome.runtime.lastError.message))
+                else resolve(r)
+              })
+            }),msg)
+          }
+
+          ;(async()=>{
+            const context=await chromium.launchPersistentContext(
+              fs.mkdtempSync(path.join(os.tmpdir(),'threadline-history-')),
+              {headless:false,args:[`--disable-extensions-except=${build}`,`--load-extension=${build}`,'--no-first-run','--no-default-browser-check']}
+            )
+            const worker=await workerFor(context)
+            const extensionId=new URL(worker.url()).host
+            const host=await context.newPage()
+            await host.goto('https://chatgpt.com/',{waitUntil:'domcontentloaded',timeout:30000})
+            await host.locator('#ai-memory-float-root').waitFor({state:'attached',timeout:15000})
+
+            const seen=[]
+            await context.route('**/*',async route=>{
+              const req=route.request()
+              const url=req.url()
+              if(url==='https://chatgpt.com/api/auth/session'){
+                seen.push({kind:'auth',url,authorization:req.headers()['authorization']||null})
+                return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({accessToken:'TEST_HISTORY_TOKEN'})})
+              }
+              if(url.startsWith('https://chatgpt.com/backend-api/conversations?')){
+                seen.push({kind:'list',url,authorization:req.headers()['authorization']||null})
+                return route.fulfill({
+                  status:200,contentType:'application/json',
+                  body:JSON.stringify({items:[{id:a,title:'Mock A'},{id:b,title:'Mock B'}],total:2})
+                })
+              }
+              if(url===`https://chatgpt.com/backend-api/conversation/${a}`){
+                seen.push({kind:'detail-a',url,authorization:req.headers()['authorization']||null})
+                return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(detail(a,'Mock A',true))})
+              }
+              if(url===`https://chatgpt.com/backend-api/conversation/${b}`){
+                seen.push({kind:'detail-b',url,authorization:req.headers()['authorization']||null})
+                return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(detail(b,'Mock B',false))})
+              }
+              return route.continue()
+            })
+
+            const opened=await worker.evaluate(async()=>{
+              const tabs=await chrome.tabs.query({})
+              const tab=tabs.find(t=>(t.url||'').startsWith('https://chatgpt.com/'))
+              if(!tab?.id)return false
+              await chrome.tabs.sendMessage(tab.id,{type:'OPEN_MEMORY_PANEL'})
+              return true
+            })
+            if(!opened)throw new Error('Could not open Threadline panel')
+            const panel=host.getByRole('dialog',{name:/Threadline panel/i})
+            await panel.waitFor({state:'visible',timeout:15000})
+            const load=panel.locator('button').filter({hasText:'Load all ChatGPT history'}).first()
+            await load.waitFor({state:'visible',timeout:15000})
+            await load.click()
+
+            const ext=await context.newPage()
+            await ext.goto(`chrome-extension://${extensionId}/tabs/memory-graph.html`)
+            const start=Date.now()
+            let all=[]
+            while(Date.now()-start<30000){
+              all=await allMemories(ext)
+              const sessions=new Set(all.filter(r=>r.sessionId===`openai:${a}`||r.sessionId===`openai:${b}`).map(r=>r.sessionId))
+              if(sessions.size===2)break
+              await sleep(250)
+            }
+            const relevant=all.filter(r=>r.sessionId===`openai:${a}`||r.sessionId===`openai:${b}`)
+            console.log('HISTORY_RECORDS',JSON.stringify(relevant.map(r=>({
+              id:r.id,sessionId:r.sessionId,content:r.content,branchIndex:r.branchIndex,pathId:r.pathId,
+              source:r.source,graphAuthority:r.metadata?.graphAuthority,recoveryArchive:r.metadata?.recoveryArchive,
+              branchStatus:r.metadata?.branchStatus
+            }))))
+            const sessions=new Set(relevant.map(r=>r.sessionId))
+            if(sessions.size!==2)throw new Error('Expected two synced sessions, got '+sessions.size)
+            const side=relevant.find(r=>r.sessionId===`openai:${a}`&&r.content==='HISTORY_SIDE_SENTINEL')
+            if(!side)throw new Error('Provider history side branch missing')
+            if(side.branchIndex!==1 || !String(side.pathId||'').includes(':side:')){
+              throw new Error('Provider history side branch lineage incorrect')
+            }
+            if(side.metadata?.graphAuthority!=='provider_graph' || side.metadata?.recoveryArchive!==false){
+              throw new Error('Provider history authority metadata incorrect')
+            }
+            if(side.source!=='chatgpt-api')throw new Error('Provider history source incorrect')
+
+            const listReq=seen.find(x=>x.kind==='list')
+            const da=seen.find(x=>x.kind==='detail-a')
+            const db=seen.find(x=>x.kind==='detail-b')
+            console.log('HISTORY_REQUESTS',JSON.stringify(seen))
+            for(const x of [listReq,da,db]){
+              if(!x)throw new Error('Missing expected backend request')
+              if(x.authorization!=='Bearer TEST_HISTORY_TOKEN')throw new Error('Missing/incorrect Bearer auth on '+x.kind)
+            }
+
+            const search=await runtimeMessage(ext,{type:'SEARCH_MEMORIES',payload:{query:'HISTORY_SIDE_SENTINEL',topK:5}})
+            if(!(search?.payload?.results||[]).some(r=>r.content==='HISTORY_SIDE_SENTINEL')){
+              throw new Error('Synced provider side branch not searchable')
+            }
+
+            await context.close()
+            console.log('MOCKED_CHATGPT_HISTORY_E2E_PASS')
+          })().catch(e=>{console.error(e);process.exit(1)})
+          NODE
+          xvfb-run -a node /tmp/history-sync-e2e.cjs
