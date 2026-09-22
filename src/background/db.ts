@@ -11,6 +11,8 @@ import type {
 import { normalizeContent } from "./adapters/base";
 import { isTransientAssistantMessage } from "../utils/transient-assistant";
 import { CHUNK_SIZE_CHARS } from "./chunking";
+import { reconstructLogicalContent } from "../recovery/logical-content";
+import { protectAuthoritativeGraphPatch } from "../recovery/graph-authority";
 
 export class MemoryDatabase extends Dexie {
   memories!: Table<MemoryRecord, string>;
@@ -459,38 +461,31 @@ export class MemoryDatabase extends Dexie {
       metadata?: Record<string, unknown>;
     },
   ): Promise<void> {
-    const patch: Partial<MemoryRecord> = {};
-    if (fields.turnIndex !== undefined) patch.turnIndex = fields.turnIndex;
-    if (fields.roundIndex !== undefined) patch.roundIndex = fields.roundIndex;
-    if (fields.branchIndex !== undefined) patch.branchIndex = fields.branchIndex;
-    if (fields.branchId !== undefined) patch.branchId = fields.branchId;
-    if (fields.pathId !== undefined) patch.pathId = fields.pathId;
-    if (fields.parentMessageId !== undefined) patch.parentMessageId = fields.parentMessageId;
-    if (fields.sourceUrl !== undefined) patch.sourceUrl = fields.sourceUrl;
-    if (fields.conversationTitle !== undefined) patch.conversationTitle = fields.conversationTitle;
-
-    const metadata = fields.metadata ?? {};
-    const hasMetadata = Object.keys(metadata).length > 0;
-    const hasPatch = Object.keys(patch).length > 0;
-    if (!hasPatch && !hasMetadata) return;
-
     const direct = await this.memories.get(messageId);
     if (direct) {
-      await this.memories.update(messageId, {
-        ...patch,
-        ...(hasMetadata ? { metadata: { ...(direct.metadata ?? {}), ...metadata } } : {}),
-      });
+      const safe = protectAuthoritativeGraphPatch(direct, fields);
+      const { metadata, ...patch } = safe;
+      const hasMetadata = !!metadata && Object.keys(metadata).length > 0;
+      if (Object.keys(patch).length > 0 || hasMetadata) {
+        await this.memories.update(messageId, {
+          ...patch,
+          ...(hasMetadata ? { metadata: { ...(direct.metadata ?? {}), ...metadata } } : {}),
+        });
+      }
     }
 
     await this.memories
       .where("parentId")
       .equals(messageId)
       .modify((record) => {
+        const safe = protectAuthoritativeGraphPatch(record, fields);
+        const { metadata, ...patch } = safe;
         Object.assign(record, patch);
-        if (hasMetadata) record.metadata = { ...(record.metadata ?? {}), ...metadata };
+        if (metadata && Object.keys(metadata).length > 0) {
+          record.metadata = { ...(record.metadata ?? {}), ...metadata };
+        }
       });
   }
-
   /**
    * Replaces the stored text of a DOM-sourced message when a later scan sees
    * a fuller/edited version (partial streaming renders, edits). Deletes stale
@@ -515,10 +510,7 @@ export class MemoryDatabase extends Dexie {
 
     const existingLogical = direct
       ? direct.content
-      : [...chunks]
-          .sort((a, b) => (a.chunkIndex ?? 0) - (b.chunkIndex ?? 0))
-          .map((c) => c.content)
-          .join("");
+      : reconstructLogicalContent(chunks);
     if (existingLogical === content) return { changed: false, removedRecords: [] };
     // A shorter prefix of the stored text is a partial streaming render —
     // keep the longer, more complete version.
@@ -653,7 +645,7 @@ export class MemoryDatabase extends Dexie {
           {
             ...first,
             id: parentId,
-            content: chunks.map((chunk) => chunk.content).join(""),
+            content: reconstructLogicalContent(chunks),
             timestamp,
             createdAt,
             parentId: undefined,

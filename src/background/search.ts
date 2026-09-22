@@ -1,124 +1,95 @@
 /**
  * Hybrid search over stored memory records.
  *
- * Algorithm:
- *   Route A — Vector search with Time-Decay:
- *     1. Embed the query via the offscreen document (ONNX/WASM).
- *     2. Load all non-deleted records that have a stored embedding.
- *     3. Score each record by dot product (cosine sim for L2-normalised vectors).
- *     4. Apply exponential time-decay: score *= exp(-λ * daysOld).
- *     5. Group by logical message (chunks share parentId), keep max score per group.
- *
- *   Route B — Keyword search (MiniSearch / BM25):
- *     6. Search in-memory MiniSearch index (rebuilt from Dexie on SW startup).
- *
- *   Fusion — Reciprocal Rank Fusion (RRF):
- *     7. Convert both ranked lists to RRF scores (1 / (k + rank)), sum per group.
- *     8. Take top K groups, merge chunks, return SearchResults.
- *
- *   Hydration:
- *     Call hydrateSearchIndex() on Service Worker startup and after import.
- *     Call miniSearch.add(record) whenever a new record is saved to Dexie.
+ * Recovery policy:
+ *   - raw recovered archives never age-decay out of semantic recall;
+ *   - lexical retrieval tries strict AND first, then OR only when strict is empty;
+ *   - strong lexical evidence keeps lexical ordering authoritative;
+ *   - semantic/vector evidence reranks only when lexical evidence is weak;
+ *   - physical chunks are reconstructed into exact logical-message content.
  */
-
 import MiniSearch from 'minisearch'
 import type { MemoryRecord } from '../types/memory'
 import { db } from './db'
 import type { SearchMemoriesRequest, SearchMemoriesResponse, SearchResult } from '../types/messages'
+import { reconstructLogicalContent } from '../recovery/logical-content'
+import {
+  applyTemporalDecay,
+  buildRecordToGroupMap,
+  collectUniqueKeywordGroups,
+  keywordSearchWithFallback,
+  shouldPermitSemanticRerank,
+} from '../recovery/search-policy'
 
 // ─── MiniSearch Setup ─────────────────────────────────────────────────────────
-
 export const miniSearch = new MiniSearch<MemoryRecord>({
   idField: 'id',
-  fields: ['content'],          // fields to index for full-text search
-  storeFields: ['id', 'createdAt'], // fields to return in results
+  fields: ['content'],
+  storeFields: ['id', 'createdAt'],
 })
 
-/**
- * Rebuild the MiniSearch keyword index from Dexie.
- * Must be called on Service Worker startup (SW memory is wiped on sleep/wake).
- * Also call after a bulk import so the index reflects imported records.
- */
+/** Rebuild keyword index from Dexie. */
 export async function hydrateSearchIndex(): Promise<void> {
   try {
     const all = await db.memories.filter((r) => !r.isDeleted).toArray()
     miniSearch.removeAll()
-    if (all.length > 0) {
-      miniSearch.addAll(all)
-    }
+    if (all.length > 0) miniSearch.addAll(all)
   } catch (err) {
     console.warn('[Threadline] MiniSearch hydration failed:', err)
   }
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
 function dotProduct(a: Float32Array, b: Float32Array): number {
   let sum = 0
   for (let i = 0; i < a.length; i++) sum += a[i] * b[i]
   return sum
 }
 
-/** Group key: standalone record = record.id, chunk = record.parentId */
+/** Group key: standalone record = record.id, chunk = record.parentId. */
 function groupKey(r: MemoryRecord): string {
   return r.parentId ?? r.id
 }
 
 /** Build one SearchResult from a logical message (single record or merged chunks). */
 function toSearchResult(records: MemoryRecord[], similarityScore: number): SearchResult {
-  const first = records[0]!
-  if (records.length === 1) {
-    return {
-      id: first.id,
-      role: first.role,
-      content: first.content,
-      sessionId: first.sessionId,
-      provider: first.provider,
-      timestamp: first.timestamp,
-      createdAt: first.createdAt,
-      similarityScore,
-    }
-  }
-  // Merge chunks in chunkIndex order
   const sorted = [...records].sort((a, b) => (a.chunkIndex ?? 0) - (b.chunkIndex ?? 0))
+  const first = sorted[0]!
   return {
     id: first.parentId ?? first.id,
     role: first.role,
-    content: sorted.map((r) => r.content).join(''),
+    content: reconstructLogicalContent(sorted),
     sessionId: first.sessionId,
     provider: first.provider,
     timestamp: first.timestamp,
     createdAt: first.createdAt,
     parentId: first.parentId,
     chunkIndex: undefined,
+    conversationTitle: first.conversationTitle,
+    roundIndex: first.roundIndex,
+    branchIndex: first.branchIndex,
+    originalMessageId: first.originalMessageId,
+    metadata: first.metadata,
     similarityScore,
   }
 }
 
-// ─── Core Handler ─────────────────────────────────────────────────────────────
-
-// Time-decay constant: λ = 0.01 → half-life ≈ 69 days
+// Time-decay constant for non-archive memories: λ = 0.01 → half-life ≈ 69 days.
 const LAMBDA = 0.01
-const MS_PER_DAY = 1000 * 60 * 60 * 24
-
-// RRF smoothing constant (standard value)
+// RRF smoothing constant (standard value).
 const RRF_K = 60
-
-// Minimum threshold for vector search (scores below this are treated as irrelevant noise)
-const VECTOR_THRESHOLD = 0.25 
-
-// Limit the number of candidates entering RRF fusion from each route to avoid noise dilution
+// Scores below this are treated as semantic noise.
+const VECTOR_THRESHOLD = 0.25
+// Bound each retrieval route before fusion.
 const POOL_SIZE = 50
 
 export async function handleSearchMemories(
   message: SearchMemoriesRequest,
-  embedViaOffscreen: (text: string) => Promise<Float32Array>
+  embedViaOffscreen: (text: string) => Promise<Float32Array>,
 ): Promise<SearchMemoriesResponse> {
   const { query, topK = 5 } = message.payload
 
-  // ── Load all candidate records once ────────────────────────────────────────
   const all = await db.memories.filter((r) => !r.isDeleted).toArray()
-
   if (all.length === 0) {
     return {
       type: 'SEARCH_MEMORIES_RESPONSE',
@@ -126,7 +97,7 @@ export async function handleSearchMemories(
     }
   }
 
-  // Build lookup maps used by both routes and the merge step
+  // Build lookup maps once for both routes and the merge step.
   const groupRecords = new Map<string, MemoryRecord[]>()
   for (const r of all) {
     const key = groupKey(r)
@@ -134,8 +105,9 @@ export async function handleSearchMemories(
     list.push(r)
     groupRecords.set(key, list)
   }
+  const recordToGroup = buildRecordToGroupMap(all)
 
-  // ── Route A: Vector + Time-Decay ───────────────────────────────────────────
+  // ── Route A: Vector + conditional time decay ───────────────────────────────
   const vectorGroupScores = new Map<string, number>()
   const vectorRecords = all.filter((r) => !!r.embedding)
 
@@ -152,82 +124,83 @@ export async function handleSearchMemories(
     const now = Date.now()
     for (const r of vectorRecords) {
       const baseScore = dotProduct(queryEmbedding, r.embedding as Float32Array)
-      
-      // Reject low scores to prevent the negative score decay paradox
-      if (baseScore < VECTOR_THRESHOLD) continue;
-      
-      const daysOld = (now - r.createdAt) / MS_PER_DAY
-      const decayedScore = baseScore * Math.exp(-LAMBDA * daysOld)
+      if (baseScore < VECTOR_THRESHOLD) continue
+
+      const scored = applyTemporalDecay(baseScore, r, now, LAMBDA)
       const key = groupKey(r)
       const best = vectorGroupScores.get(key)
-      if (best === undefined || decayedScore > best) {
-        vectorGroupScores.set(key, decayedScore)
-      }
+      if (best === undefined || scored > best) vectorGroupScores.set(key, scored)
     }
   }
 
-  // Sort vector results descending by decayed score
   const vectorRanked = [...vectorGroupScores.entries()]
     .sort((a, b) => b[1] - a[1])
     .slice(0, POOL_SIZE)
     .map(([key]) => key)
 
+  // ── Route B: Keyword search (strict AND, then OR fallback) ────────────────
+  const keyword = keywordSearchWithFallback((combineWith) =>
+    miniSearch.search(query, { fuzzy: 0.2, combineWith }).map((hit) => ({
+      id: String(hit.id),
+      score: hit.score,
+      queryTerms: hit.queryTerms,
+    })),
+  )
+  const kwHits = keyword.results
+  const kwRanked = collectUniqueKeywordGroups(kwHits, recordToGroup, POOL_SIZE)
 
-  // ── Route B: Keyword search (MiniSearch / BM25) ────────────────────────────
-  // Removed prefix matching, added slight fuzziness, and enforce AND logic
-  const kwHits = miniSearch.search(query, { 
-    fuzzy: 0.2,
-    combineWith: 'AND' 
-  })
+  // Strict AND is inherently high-confidence. On OR fallback, use query-term
+  // coverage to decide whether semantic evidence may reorder lexical results.
+  const strongLexical = kwRanked.length > 0 && (
+    keyword.mode === 'AND' || !shouldPermitSemanticRerank(query, kwHits[0])
+  )
 
-  // MiniSearch returns results already sorted by BM25 score desc.
-  // Map to group keys (chunk records share parentId).
-  const kwGroupSeen = new Set<string>()
-  const kwRanked: string[] = []
-  for (const hit of kwHits) {
-    // hit.id is the record id; resolve to group key via the record lookup
-    const records = groupRecords.get(hit.id as string)
-    // hit.id may be a chunk id — find the group it belongs to
-    const key = records
-      ? hit.id as string
-      : [...groupRecords.keys()].find((k) =>
-          groupRecords.get(k)!.some((r) => r.id === (hit.id as string))
-        )
-    if (key && !kwGroupSeen.has(key)) {
-      kwGroupSeen.add(key)
-      kwRanked.push(key)
+  const finalScores = new Map<string, number>()
+  let topKeys: string[]
+
+  if (strongLexical) {
+    kwRanked.forEach((key, idx) => {
+      finalScores.set(key, 1 / (RRF_K + idx + 1))
+    })
+    const lexicalSet = new Set(kwRanked)
+    const semanticExtras = vectorRanked.filter((key) => !lexicalSet.has(key))
+    semanticExtras.forEach((key, idx) => {
+      finalScores.set(key, 1 / (RRF_K + kwRanked.length + idx + 1))
+    })
+    topKeys = [...kwRanked, ...semanticExtras].slice(0, topK)
+  } else {
+    // Weak/no lexical evidence: use the existing reciprocal-rank fusion policy.
+    vectorRanked.forEach((key, idx) => {
+      finalScores.set(key, 1 / (RRF_K + idx + 1))
+    })
+    kwRanked.forEach((key, idx) => {
+      const prev = finalScores.get(key) ?? 0
+      finalScores.set(key, prev + 1 / (RRF_K + idx + 1))
+    })
+
+    if (finalScores.size === 0) {
+      return {
+        type: 'SEARCH_MEMORIES_RESPONSE',
+        payload: { results: [], query, reason: 'NO_MATCHES' },
+      }
     }
+
+    topKeys = [...finalScores.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, topK)
+      .map(([key]) => key)
   }
 
-  // ── RRF Fusion ─────────────────────────────────────────────────────────────
-  const rrfScores = new Map<string, number>()
-
-  vectorRanked.forEach((key, idx) => {
-    rrfScores.set(key, 1 / (RRF_K + idx + 1))
-  })
-
-  kwRanked.forEach((key, idx) => {
-    const prev = rrfScores.get(key) ?? 0
-    rrfScores.set(key, prev + 1 / (RRF_K + idx + 1))
-  })
-
-  // If both routes failed (no embedding AND no keyword hits), fall back gracefully
-  if (rrfScores.size === 0) {
+  if (topKeys.length === 0) {
     return {
       type: 'SEARCH_MEMORIES_RESPONSE',
       payload: { results: [], query, reason: 'NO_MATCHES' },
     }
   }
 
-  // ── Final ranking ──────────────────────────────────────────────────────────
-  const topKeys = [...rrfScores.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, topK)
-    .map(([key]) => key)
-
   const results: SearchResult[] = topKeys
     .filter((key) => groupRecords.has(key))
-    .map((key) => toSearchResult(groupRecords.get(key)!, rrfScores.get(key)!))
+    .map((key) => toSearchResult(groupRecords.get(key)!, finalScores.get(key) ?? 0))
 
   return { type: 'SEARCH_MEMORIES_RESPONSE', payload: { results, query } }
 }

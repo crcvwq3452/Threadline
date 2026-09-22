@@ -9,6 +9,9 @@ import { getThemeTokens } from '../../ui/theme'
 import { DownloadIcon, ChevronRightIcon } from '../../ui/icons'
 import * as S from '../../ui/styles'
 import { isMemoryExportAppName } from '../../constants/branding'
+import { buildImportBatches, type ImportMessage } from '../../recovery/import-batching'
+import { importChatGPTArchiveZip } from '../../recovery/chatgpt-archive-zip'
+import { isChatGPTArchiveZip, providerImportAccept } from '../../recovery/import-view-router'
 
 // ── Component ──────────────────────────────────────────────────────────────────
 
@@ -50,24 +53,34 @@ export function ImportView({ onImported }: ImportViewProps) {
     }
   }, [menuOpen])
 
-  async function sendRecordsToBackground(
-    records: SerializableMemoryRecord[],
-  ): Promise<{ count: number; skipped: number }> {
+  async function sendImportMessageToBackground(
+    message: ImportMessage,
+  ): Promise<ImportMemoriesResponse['payload']> {
     const resp = await new Promise<ImportMemoriesResponse>((resolve, reject) => {
-      chrome.runtime.sendMessage(
-        { type: 'IMPORT_MEMORIES', payload: { records } },
-        (r: ImportMemoriesResponse | undefined) => {
-          if (chrome.runtime.lastError)
-            return reject(new Error(chrome.runtime.lastError.message))
-          if (!r) return reject(new Error('No response from background'))
-          resolve(r)
-        },
-      )
+      chrome.runtime.sendMessage(message, (r: ImportMemoriesResponse | undefined) => {
+        if (chrome.runtime.lastError)
+          return reject(new Error(chrome.runtime.lastError.message))
+        if (!r) return reject(new Error('No response from background'))
+        resolve(r)
+      })
     })
     if (!resp.payload.success) throw new Error(resp.payload.error ?? '寫入失敗')
-    return { count: resp.payload.count, skipped: resp.payload.skipped ?? 0 }
+    return resp.payload
   }
 
+  async function sendRecordsToBackground(
+    records: SerializableMemoryRecord[],
+    options: Parameters<typeof buildImportBatches>[1] = {},
+  ): Promise<{ count: number; skipped: number }> {
+    let count = 0
+    let skipped = 0
+    for (const message of buildImportBatches(records, options)) {
+      const result = await sendImportMessageToBackground(message)
+      count += result.count
+      skipped += result.skipped ?? 0
+    }
+    return { count, skipped }
+  }
   // ── Backup file handler (Threadline backup format) ───────────────────────────
 
   async function handleBackupFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -81,22 +94,14 @@ export function ImportView({ onImported }: ImportViewProps) {
         const data = JSON.parse(ev.target?.result as string) as IMemoryExportEnvelope
         if (!isMemoryExportAppName(data?.metadata?.app)) throw new Error(t.importInvalidApp)
         if (!Array.isArray(data.payload)) throw new Error(t.importInvalidPayload)
-        const resp = await new Promise<ImportMemoriesResponse>((resolve, reject) => {
-          chrome.runtime.sendMessage({
-            type: 'IMPORT_MEMORIES',
-            payload: {
-              records: data.payload as SerializableMemoryRecord[],
-              ...(Array.isArray(data.prompts) && data.prompts.length > 0 && { prompts: data.prompts }),
-              ...(Array.isArray(data.folders) && data.folders.length > 0 && { folders: data.folders }),
-            },
-          }, (r: ImportMemoriesResponse | undefined) => {
-            if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message))
-            if (!r) return reject(new Error('No response from background'))
-            resolve(r)
-          })
-        })
-        if (!resp.payload.success) throw new Error(resp.payload.error ?? '寫入失敗')
-        setStatus({ type: 'success', msg: t.importSuccess(resp.payload.count) })
+        const result = await sendRecordsToBackground(
+          data.payload as SerializableMemoryRecord[],
+          {
+            ...(Array.isArray(data.prompts) && data.prompts.length > 0 && { prompts: data.prompts }),
+            ...(Array.isArray(data.folders) && data.folders.length > 0 && { folders: data.folders }),
+          },
+        )
+        setStatus({ type: 'success', msg: t.importSuccess(result.count) })
         setTimeout(() => setStatus({ type: 'idle' }), 3000)
         setMenuOpen(false)
         onImported?.()
@@ -110,7 +115,6 @@ export function ImportView({ onImported }: ImportViewProps) {
     reader.onerror = () => { setStatus({ type: 'error', msg: t.importReadFailed }); setImporting(false) }
     reader.readAsText(file)
   }
-
   // ── Generic provider importer handler ───────────────────────────────────────
 
   async function handleProviderFileChange(e: React.ChangeEvent<HTMLInputElement>, importer: IConversationImporter) {
@@ -118,6 +122,29 @@ export function ImportView({ onImported }: ImportViewProps) {
     if (!file) return
     setActiveImporterId(importer.id)
     setStatus({ type: 'idle' })
+    if (isChatGPTArchiveZip(importer.id, file.name)) {
+      try {
+        const result = await importChatGPTArchiveZip(
+          file,
+          async (message) => sendImportMessageToBackground(message),
+        )
+        const successMsg = result.sentRecords === 0 && result.skippedRecords > 0
+          ? t.importProviderAlreadyImported(importer.displayName)
+          : result.skippedRecords > 0
+            ? t.importProviderSuccessWithSkipped(importer.displayName, result.sentRecords, result.skippedRecords)
+            : t.importProviderSuccess(importer.displayName, result.sentRecords)
+        setStatus({ type: 'success', msg: successMsg })
+        setTimeout(() => setStatus({ type: 'idle' }), 3000)
+        setMenuOpen(false)
+        onImported?.()
+      } catch (err) {
+        setStatus({ type: 'error', msg: t.importProviderFailed(importer.displayName, (err as Error).message ?? String(err)) })
+      } finally {
+        setActiveImporterId(null)
+        e.target.value = ''
+      }
+      return
+    }
     const reader = new FileReader()
     reader.onload = async (ev) => {
       try {
@@ -205,7 +232,10 @@ export function ImportView({ onImported }: ImportViewProps) {
                 e.preventDefault()
                 e.stopPropagation()
                 currentImporterRef.current = importer
-                providerInputRef.current?.click()
+                if (providerInputRef.current) {
+                  providerInputRef.current.accept = providerImportAccept(importer.id)
+                  providerInputRef.current.click()
+                }
               }}
               type="button"
             >

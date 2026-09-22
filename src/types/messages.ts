@@ -269,6 +269,11 @@ export interface SearchResult {
   createdAt: number
   parentId?: string
   chunkIndex?: number
+  conversationTitle?: string
+  roundIndex?: number
+  branchIndex?: number
+  originalMessageId?: string
+  metadata?: Record<string, unknown>
   similarityScore: number
 }
 
@@ -308,6 +313,8 @@ export interface ImportMemoriesRequest {
     records: SerializableMemoryRecord[]
     prompts?: FavoritePrompt[]
     folders?: PromptFolder[]
+    /** False for intermediate recovery batches; omitted/true preserves legacy one-shot behavior. */
+    finalize?: boolean
   }
 }
 

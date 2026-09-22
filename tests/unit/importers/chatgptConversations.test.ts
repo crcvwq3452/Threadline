@@ -43,13 +43,15 @@ describe('parseChatGPTConversations — happy path', () => {
     const records = parseChatGPTConversations([baseConv])
     const user = records.find((r) => r.role === 'user')!
     expect(user).toBeDefined()
-    expect(user.id).toBe('chatgpt-import-msg-1')
+    expect(user.id).toBe('msg-1')
     expect(user.role).toBe('user')
     expect(user.content).toBe('Hello, world!')
     expect(user.provider).toBe('openai')
-    expect(user.sessionId).toBe('openai:chatgpt-conv-1')
+    expect(user.sessionId).toBe('openai:conv-1')
     expect(user.timestamp).toBe(1700001000)
-    expect(user.createdAt).toBe(1700000000)
+    // Recovery archives use import time for freshness policy while preserving
+    // the original provider time in timestamp.
+    expect(user.createdAt).toBeGreaterThan(user.timestamp)
     expect(user.isPartial).toBe(false)
     expect(user.isDeleted).toBe(false)
     expect(user.isSuperseded).toBe(false)
@@ -226,10 +228,12 @@ describe('parseChatGPTConversations — stable IDs for dedup', () => {
     expect(ids1).toEqual(ids2)
   })
 
-  it('record IDs use the chatgpt-import prefix with the message UUID', () => {
+  it('record IDs preserve provider message UUIDs for cross-source dedup', () => {
     const records = parseChatGPTConversations([baseConv])
+    expect(records.map((r) => r.id).sort()).toEqual(['msg-1', 'msg-2'])
     for (const r of records) {
-      expect(r.id).toMatch(/^chatgpt-import-/)
+      expect(r.originalMessageId).toBe(r.id)
+      expect(r.sessionId).toBe('openai:conv-1')
     }
   })
 })

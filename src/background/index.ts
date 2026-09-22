@@ -738,6 +738,7 @@ async function handleExportMemories() {
 
 async function handleImportMemories(message: ImportMemoriesRequest) {
   try {
+    const finalize = message.payload.finalize !== false;
     const records: MemoryRecord[] = message.payload.records.map((r) => ({
       ...r,
       embedding: Array.isArray(r.embedding)
@@ -747,51 +748,47 @@ async function handleImportMemories(message: ImportMemoriesRequest) {
         Array.isArray(r.embedding) && r.embedding!.length > 0 ? 1 : 0,
     }));
 
-    // Skip records already in the DB (idempotent re-import support)
+    // Skip records already in the DB (idempotent re-import support).
     const allIds = records.map((r) => r.id);
     const newIds = new Set(await db.filterNewChatMessageUuids(allIds));
     const newRecords = records.filter((r) => newIds.has(r.id));
     const skippedCount = records.length - newRecords.length;
 
-    if (newRecords.length === 0) {
-      // Nothing new — return early, no DB writes or status broadcast needed
-      return {
-        type: "IMPORT_MEMORIES_RESPONSE" as const,
-        payload: { success: true, count: 0, skipped: skippedCount },
-      };
-    }
-
-    await db.memories.bulkPut(newRecords);
-
-    // Persist conversation titles extracted from import metadata (e.g. ChatGPT)
-    const titleUpdates = new Map<string, string>();
-    for (const r of newRecords) {
-      const title = (r.metadata as Record<string, string> | undefined)
-        ?.conversationTitle;
-      if (title && r.sessionId && !titleUpdates.has(r.sessionId)) {
-        titleUpdates.set(r.sessionId, title);
+    if (newRecords.length > 0) {
+      await db.memories.bulkPut(newRecords);
+      // Persist conversation titles extracted from import metadata (e.g. ChatGPT).
+      const titleUpdates = new Map<string, string>();
+      for (const r of newRecords) {
+        const title = (r.metadata as Record<string, string> | undefined)
+          ?.conversationTitle;
+        if (title && r.sessionId && !titleUpdates.has(r.sessionId)) {
+          titleUpdates.set(r.sessionId, title);
+        }
+      }
+      for (const [sessionId, title] of titleUpdates) {
+        void db.upsertConversationTitle(sessionId, title);
       }
     }
-    for (const [sessionId, title] of titleUpdates) {
-      void db.upsertConversationTitle(sessionId, title);
-    }
 
-    const prompts = message.payload.prompts;
-    if (Array.isArray(prompts) && prompts.length > 0) {
-      await chrome.storage.local.set({ [FAVORITE_PROMPTS_KEY]: prompts });
-    }
-    const folders = message.payload.folders;
-    if (Array.isArray(folders) && folders.length > 0) {
-      await chrome.storage.local.set({ [FOLDERS_STORAGE_KEY]: folders });
-    }
-    // Rebuild keyword index so imported records are immediately searchable
-    void hydrateSearchIndex();
+    // Prompts/folders are carried only by the final batch. Legacy one-shot
+    // callers omit finalize, which still means finalization.
+    if (finalize) {
+      const prompts = message.payload.prompts;
+      if (Array.isArray(prompts) && prompts.length > 0) {
+        await chrome.storage.local.set({ [FAVORITE_PROMPTS_KEY]: prompts });
+      }
+      const folders = message.payload.folders;
+      if (Array.isArray(folders) && folders.length > 0) {
+        await chrome.storage.local.set({ [FOLDERS_STORAGE_KEY]: folders });
+      }
 
-    // Process pending embeddings in the background (does not block display)
-    void processPendingEmbeddings();
-
-    // Notify extension UIs so graph/search state can refresh after import.
-    void broadcastStatusUpdate();
+      // Do not report a completed final import before lexical search is ready.
+      // An all-duplicate finalize:true retry therefore repairs a service-worker
+      // interruption that occurred after DB commit but before index hydration.
+      await hydrateSearchIndex();
+      void processPendingEmbeddings();
+      void broadcastStatusUpdate();
+    }
 
     return {
       type: "IMPORT_MEMORIES_RESPONSE" as const,
@@ -804,7 +801,6 @@ async function handleImportMemories(message: ImportMemoriesRequest) {
     };
   }
 }
-
 // ─── Message Router ───────────────────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
