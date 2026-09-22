@@ -64,3 +64,52 @@ export function reconstructLogicalContent(records: MemoryRecord[]): string {
   if (legacy !== undefined) return legacy
   return chunks.map(c => c.content).join('')
 }
+
+export interface LogicalReconstructionResult {
+  content: string
+  complete: boolean
+  error?: string
+  firstStartUtf16?: number
+}
+
+function reconstructAvailableOffsetTail(chunks: MemoryRecord[]): { content: string; firstStartUtf16?: number } {
+  const sorted = [...chunks].sort(byChunkIndex)
+  const firstStart = numericMeta(sorted[0], 'chunkStartUtf16')
+  if (firstStart === undefined) {
+    return { content: sorted.map(c => c.content).join('') }
+  }
+
+  let cursor = firstStart
+  let out = ''
+  for (const chunk of sorted) {
+    const start = numericMeta(chunk, 'chunkStartUtf16')
+    const length = numericMeta(chunk, 'chunkLengthUtf16')
+    if (start === undefined || length === undefined || length !== chunk.content.length) {
+      out += chunk.content
+      continue
+    }
+    if (start > cursor) {
+      out += `\n[Threadline missing ${start - cursor} UTF-16 units]\n`
+      cursor = start
+    }
+    const overlap = Math.max(0, cursor - start)
+    out += chunk.content.slice(Math.min(overlap, chunk.content.length))
+    cursor = Math.max(cursor, start + length)
+  }
+  return { content: out, firstStartUtf16: firstStart }
+}
+
+export function tryReconstructLogicalContent(records: MemoryRecord[]): LogicalReconstructionResult {
+  try {
+    return { content: reconstructLogicalContent(records), complete: true }
+  } catch (err) {
+    const partial = reconstructAvailableOffsetTail(records)
+    return {
+      content: partial.content,
+      complete: false,
+      error: err instanceof Error ? err.message : String(err),
+      firstStartUtf16: partial.firstStartUtf16,
+    }
+  }
+}
+
