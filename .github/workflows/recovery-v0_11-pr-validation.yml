@@ -1,4 +1,4 @@
-name: Recovery v0.12 validation
+name: Recovery v0.13 validation
 
 on:
   pull_request:
@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   validate:
-    name: Apply v0.12 · Type Check · Test · Integration · Build
+    name: Apply v0.13 · Type Check · Test · Integration · Build
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -33,17 +33,17 @@ jobs:
       - name: Reconstruct and verify recovery patch
         shell: bash
         run: |
-          tr -d '\r\n' < driver/.recovery-ci/threadline_v0_12_payload.b64 | base64 -d > /tmp/threadline_recovery_patch_v0_12.zip
-          echo "a7ee84d4aafd2e5e4e469ebfef146516d64cf2f7e57a3fc301388dde513212a4  /tmp/threadline_recovery_patch_v0_12.zip" | sha256sum -c -
-          rm -rf /tmp/threadline-v0_12
-          mkdir -p /tmp/threadline-v0_12
-          unzip -q /tmp/threadline_recovery_patch_v0_12.zip -d /tmp/threadline-v0_12
-          test -x /tmp/threadline-v0_12/threadline_v12_work/tools/apply-all.sh
+          tr -d '\r\n' < driver/.recovery-ci/threadline_v0_13_payload.b64 | base64 -d > /tmp/threadline_recovery_patch_v0_13.zip
+          echo "b786813e6b5e28942aa45d94771f9d11dfe5dee00a6dfdc383dce4f33eb7b5cb  /tmp/threadline_recovery_patch_v0_13.zip" | sha256sum -c -
+          rm -rf /tmp/threadline-v0_13
+          mkdir -p /tmp/threadline-v0_13
+          unzip -q /tmp/threadline_recovery_patch_v0_13.zip -d /tmp/threadline-v0_13
+          test -x /tmp/threadline-v0_13/threadline_v13_work/tools/apply-all.sh
 
-      - name: Apply v0.12 to pristine baseline
+      - name: Apply v0.13 to pristine baseline
         shell: bash
         run: |
-          /tmp/threadline-v0_12/threadline_v12_work/tools/apply-all.sh "$GITHUB_WORKSPACE/target"
+          /tmp/threadline-v0_13/threadline_v13_work/tools/apply-all.sh "$GITHUB_WORKSPACE/target"
           git -C target status --short
 
       - name: Set up pnpm
