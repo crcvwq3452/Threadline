@@ -1,0 +1,263 @@
+name: Recovery v0.14 durability and graph-authority acceptance
+
+on:
+  pull_request:
+    branches:
+      - recovery-v0.11-ci-base
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  durability:
+    name: Backup roundtrip · adversarial DOM graph guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.25.0
+          run_install: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install and build
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Create authority fixture
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, pathlib
+          out=pathlib.Path('/tmp/durability')
+          out.mkdir(exist_ok=True)
+          cid='11111111-1111-4111-8111-111111111111'
+          def msg(mid, role, text, ts, end_turn=True):
+              return {
+                  'id':mid,
+                  'author':{'role':role,'name':None,'metadata':{}},
+                  'create_time':ts,
+                  'update_time':None,
+                  'content':{'content_type':'text','parts':[text]},
+                  'status':'finished_successfully',
+                  'end_turn':end_turn if role=='assistant' else None,
+                  'weight':1.0,
+                  'metadata':{},
+                  'recipient':'all',
+              }
+          conv={
+              'id':cid,'conversation_id':cid,'title':'Raw Graph Authority',
+              'create_time':1700700000,'update_time':1700700010,'current_node':'raw-main',
+              'mapping':{
+                  'raw-root':{'id':'raw-root','message':None,'parent':None,'children':['raw-user']},
+                  'raw-user':{'id':'raw-user','message':msg('raw-user','user','RAW_AUTHORITY_QUESTION',1700700001),'parent':'raw-root','children':['raw-main','raw-side']},
+                  'raw-main':{'id':'raw-main','message':msg('raw-main','assistant','RAW_MAIN_AUTHORITY_SENTINEL',1700700002),'parent':'raw-user','children':[]},
+                  'raw-side':{'id':'raw-side','message':msg('raw-side','assistant','RAW_SIDE_AUTHORITY_SENTINEL',1700700003),'parent':'raw-user','children':[]},
+              }
+          }
+          (out/'raw-authority.json').write_text(json.dumps([conv]),encoding='utf-8')
+          PY
+
+      - name: Chromium durability + graph authority E2E
+        shell: bash
+        run: |
+          cat > /tmp/durability-e2e.cjs <<'NODE'
+          const fs=require('fs')
+          const path=require('path')
+          const os=require('os')
+          const {createRequire}=require('module')
+          const root=process.cwd()
+          const requireTarget=createRequire(path.join(root,'package.json'))
+          const {chromium}=requireTarget('@playwright/test')
+          const build=path.join(root,'build','chrome-mv3-prod')
+          const fixture='/tmp/durability/raw-authority.json'
+          const cid='11111111-1111-4111-8111-111111111111'
+          const sid='openai:'+cid
+          const sleep=ms=>new Promise(r=>setTimeout(r,ms))
+
+          async function workerFor(context){
+            return context.serviceWorkers()[0] || await context.waitForEvent('serviceworker',{timeout:15000})
+          }
+          async function allMemories(page){
+            return page.evaluate(()=>new Promise((resolve,reject)=>{
+              const q=indexedDB.open('AIMemoryDB')
+              q.onerror=()=>reject(q.error)
+              q.onsuccess=()=>{
+                const db=q.result
+                const tx=db.transaction('memories','readonly')
+                const r=tx.objectStore('memories').getAll()
+                r.onerror=()=>reject(r.error)
+                r.onsuccess=()=>resolve(r.result)
+              }
+            }))
+          }
+          async function runtimeMessage(page,msg){
+            return page.evaluate(m=>new Promise((resolve,reject)=>{
+              chrome.runtime.sendMessage(m,r=>{
+                if(chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message))
+                else resolve(r)
+              })
+            }),msg)
+          }
+          async function openPanel(page,worker){
+            const x=await worker.evaluate(async()=>{
+              const tabs=await chrome.tabs.query({})
+              const tab=tabs.find(t=>(t.url||'').startsWith('https://chatgpt.com/'))
+              if(!tab?.id)return{ok:false}
+              await chrome.tabs.sendMessage(tab.id,{type:'OPEN_MEMORY_PANEL'})
+              return{ok:true}
+            })
+            if(!x.ok)throw new Error('ChatGPT tab missing')
+            const panel=page.getByRole('dialog',{name:/Threadline panel/i})
+            await panel.waitFor({state:'visible',timeout:15000})
+            return panel
+          }
+          async function importProviderJson(panel,file){
+            const toggle=panel.getByRole('button',{name:/Import backup/i})
+            await toggle.click()
+            const provider=panel.locator('button').filter({hasText:'ChatGPT (conversations.json)'}).first()
+            await provider.waitFor({state:'visible',timeout:10000})
+            await provider.click({noWaitAfter:true})
+            const input=panel.locator('input[type="file"][accept*=".json"]').last()
+            await input.setInputFiles(file)
+            const start=Date.now()
+            while(Date.now()-start<30000){
+              const txt=(await panel.innerText()).replace(/\s+/g,' ')
+              if(/Successfully imported \d+ .* from ChatGPT|ChatGPT: imported \d+ new/i.test(txt))return txt
+              if(/failed to import|import failed/i.test(txt))throw new Error('provider import failed: '+txt)
+              await sleep(250)
+            }
+            throw new Error('provider import timeout')
+          }
+          async function importBackup(panel,file){
+            const inputs=panel.locator('input[type="file"]')
+            const backup=inputs.first()
+            await backup.setInputFiles(file)
+            const start=Date.now()
+            while(Date.now()-start<30000){
+              const txt=(await panel.innerText()).replace(/\s+/g,' ')
+              if(/Successfully imported \d+ memories|imported \d+ memories/i.test(txt))return txt
+              if(/failed to import|import failed/i.test(txt))throw new Error('backup import failed: '+txt)
+              await sleep(250)
+            }
+            throw new Error('backup import timeout')
+          }
+
+          ;(async()=>{
+            const context=await chromium.launchPersistentContext(
+              fs.mkdtempSync(path.join(os.tmpdir(),'threadline-durable-')),
+              {headless:false,args:[`--disable-extensions-except=${build}`,`--load-extension=${build}`,'--no-first-run','--no-default-browser-check']}
+            )
+            const worker=await workerFor(context)
+            const extensionId=new URL(worker.url()).host
+            const host=await context.newPage()
+            await host.goto('https://chatgpt.com/',{waitUntil:'domcontentloaded',timeout:30000})
+            await host.locator('#ai-memory-float-root').waitFor({state:'attached',timeout:15000})
+            const panel=await openPanel(host,worker)
+            console.log(await importProviderJson(panel,fixture))
+
+            const ext=await context.newPage()
+            await ext.goto(`chrome-extension://${extensionId}/tabs/memory-graph.html`)
+            let all=await allMemories(ext)
+            let side=all.find(r=>r.sessionId===sid && r.originalMessageId==='raw-side')
+            if(!side)throw new Error('raw side branch missing before DOM attack')
+            const canonical={
+              turnIndex:side.turnIndex,roundIndex:side.roundIndex,branchIndex:side.branchIndex,
+              branchId:side.branchId,pathId:side.pathId,parentMessageId:side.parentMessageId,
+              graphAuthority:side.metadata?.graphAuthority,branchStatus:side.metadata?.branchStatus,
+              sourceNodeId:side.metadata?.sourceNodeId
+            }
+            console.log('CANONICAL_GRAPH',JSON.stringify(canonical))
+            if(canonical.branchIndex!==1 || canonical.graphAuthority!=='raw_export')throw new Error('fixture did not establish raw side authority')
+
+            // Adversarial DOM update: every graph identity field is intentionally wrong.
+            const dom=await runtimeMessage(ext,{
+              type:'DOM_SYNC',
+              payload:{
+                provider:'openai',
+                url:`https://chatgpt.com/c/${cid}`,
+                messages:[{
+                  messageId:'raw-side',
+                  role:'assistant',
+                  content:'RAW_SIDE_AUTHORITY_SENTINEL',
+                  turnIndex:20,
+                  roundIndex:9,
+                  branchIndex:0,
+                  branchId:'WRONG_DOM_BRANCH',
+                  pathId:'WRONG_DOM_PATH',
+                  parentMessageId:'WRONG_DOM_PARENT',
+                  sessionId:sid,
+                  pageTitle:'DOM enrichment title',
+                  scannedAt:Date.now()
+                }]
+              }
+            })
+            console.log('DOM_SYNC_RESPONSE',JSON.stringify(dom))
+            all=await allMemories(ext)
+            side=all.find(r=>r.sessionId===sid && r.originalMessageId==='raw-side')
+            if(!side)throw new Error('raw side branch missing after DOM attack')
+            const after={
+              turnIndex:side.turnIndex,roundIndex:side.roundIndex,branchIndex:side.branchIndex,
+              branchId:side.branchId,pathId:side.pathId,parentMessageId:side.parentMessageId,
+              graphAuthority:side.metadata?.graphAuthority,branchStatus:side.metadata?.branchStatus,
+              sourceNodeId:side.metadata?.sourceNodeId,sourceUrl:side.sourceUrl,
+              conversationTitle:side.conversationTitle,metadataSource:side.metadata?.source
+            }
+            console.log('AFTER_DOM_GRAPH',JSON.stringify(after))
+            for(const key of ['turnIndex','roundIndex','branchIndex','branchId','pathId','parentMessageId','graphAuthority','branchStatus','sourceNodeId']){
+              if(after[key]!==canonical[key])throw new Error(`DOM overwrote canonical ${key}: ${after[key]} != ${canonical[key]}`)
+            }
+            if(after.sourceUrl!==`https://chatgpt.com/c/${cid}`)throw new Error('safe DOM sourceUrl enrichment missing')
+            if(after.conversationTitle!=='DOM enrichment title')throw new Error('safe DOM title enrichment missing')
+
+            // Export exact browser DB to a real Threadline backup file.
+            const exported=await runtimeMessage(ext,{type:'EXPORT_MEMORIES'})
+            if(exported?.payload?.error)throw new Error('export failed: '+exported.payload.error)
+            const envelope=exported?.payload?.envelope
+            if(!envelope || !Array.isArray(envelope.payload))throw new Error('invalid export envelope')
+            const backup='/tmp/durability/threadline-backup.json'
+            fs.writeFileSync(backup,JSON.stringify(envelope))
+            const exportedSide=envelope.payload.find(r=>r.sessionId===sid && r.originalMessageId==='raw-side')
+            if(!exportedSide || exportedSide.pathId!==canonical.pathId || exportedSide.metadata?.graphAuthority!=='raw_export'){
+              throw new Error('backup lost raw graph provenance')
+            }
+            console.log('BACKUP_RECORDS',envelope.payload.length,'BACKUP_BYTES',fs.statSync(backup).size)
+
+            const cleared=await runtimeMessage(ext,{type:'CLEAR_ALL_MEMORIES'})
+            console.log('CLEAR_RESPONSE',JSON.stringify(cleared))
+            if((await allMemories(ext)).length!==0)throw new Error('database not empty after clear')
+
+            console.log(await importBackup(panel,backup))
+            all=await allMemories(ext)
+            const restored=all.find(r=>r.sessionId===sid && r.originalMessageId==='raw-side')
+            if(!restored)throw new Error('side branch missing after backup restore')
+            for(const key of ['turnIndex','roundIndex','branchIndex','branchId','pathId','parentMessageId']){
+              if(restored[key]!==canonical[key])throw new Error('backup restore changed '+key)
+            }
+            if(restored.metadata?.graphAuthority!=='raw_export' || restored.metadata?.branchStatus!==canonical.branchStatus){
+              throw new Error('backup restore lost raw authority metadata')
+            }
+            const search=await runtimeMessage(ext,{type:'SEARCH_MEMORIES',payload:{query:'RAW_SIDE_AUTHORITY_SENTINEL',topK:5}})
+            if(!(search?.payload?.results||[]).some(r=>r.originalMessageId==='raw-side')){
+              throw new Error('restored side branch not searchable')
+            }
+
+            await context.close()
+            console.log('DURABILITY_GRAPH_AUTHORITY_E2E_PASS')
+          })().catch(e=>{console.error(e);process.exit(1)})
+          NODE
+          xvfb-run -a node /tmp/durability-e2e.cjs
