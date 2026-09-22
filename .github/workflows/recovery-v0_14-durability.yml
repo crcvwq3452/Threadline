@@ -150,7 +150,7 @@ jobs:
             const start=Date.now()
             while(Date.now()-start<30000){
               const txt=(await panel.innerText()).replace(/\s+/g,' ')
-              if(/Successfully imported \d+ memories|imported \d+ memories/i.test(txt))return txt
+              if(/Threadline backup import complete|Successfully imported \d+ memories|imported \d+ memories/i.test(txt))return txt
               if(/failed to import|import failed/i.test(txt))throw new Error('backup import failed: '+txt)
               await sleep(250)
             }
