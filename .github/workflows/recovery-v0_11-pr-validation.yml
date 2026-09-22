@@ -69,6 +69,11 @@ jobs:
         working-directory: target
         run: pnpm test
 
+      - name: Set up Node 24 for recovery regression harness
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
       - name: Recovery patch contracts and integration checks
         shell: bash
         run: |
@@ -82,6 +87,11 @@ jobs:
           }
           export -f npx
           bash /tmp/threadline-v0_14/threadline_recovery_patch_v0_14/tests/run-all.sh
+
+      - name: Restore Node 20 for Threadline production build
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
 
       - name: Production build
         working-directory: target
