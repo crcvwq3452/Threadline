@@ -1,0 +1,78 @@
+name: Recovery v0.11 validation
+
+on:
+  pull_request:
+    branches:
+      - recovery-v0.11-ci-base
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Apply v0.11 · Type Check · Test · Integration · Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout recovery driver head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: driver
+          fetch-depth: 1
+
+      - name: Checkout exact Threadline PR #6 baseline
+        uses: actions/checkout@v4
+        with:
+          ref: 38385a345cb5675ad528330714adecdaadae98cc
+          path: target
+          fetch-depth: 0
+
+      - name: Reconstruct and verify recovery patch
+        shell: bash
+        run: |
+          tr -d '\r\n' < driver/.recovery-ci/threadline_v0_11_payload.b64 | base64 -d > /tmp/threadline_recovery_patch_v0_11.zip
+          echo "52f04fd2593e407db3290309607f9ab5f7cede3447ef181f05d44f6fcfab2ec5  /tmp/threadline_recovery_patch_v0_11.zip" | sha256sum -c -
+          rm -rf /tmp/threadline-recovery-v0_11
+          mkdir -p /tmp/threadline-recovery-v0_11
+          unzip -q /tmp/threadline_recovery_patch_v0_11.zip -d /tmp/threadline-recovery-v0_11
+          test -x /tmp/threadline-recovery-v0_11/tools/apply-all.sh
+
+      - name: Apply v0.11 to pristine baseline
+        shell: bash
+        run: |
+          /tmp/threadline-recovery-v0_11/tools/apply-all.sh "$GITHUB_WORKSPACE/target"
+          git -C target status --short
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.25.0
+          run_install: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies with frozen lockfile
+        working-directory: target
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check
+        working-directory: target
+        run: pnpm exec tsc --noEmit
+
+      - name: Unit tests
+        working-directory: target
+        run: pnpm test
+
+      - name: Integration tests
+        working-directory: target
+        run: pnpm test:integration
+
+      - name: Production build
+        working-directory: target
+        run: pnpm build
