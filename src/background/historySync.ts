@@ -6,11 +6,11 @@
  *   - live CAPTURE_MESSAGE path (upsert partial → complete assistant replies)
  */
 import type { MemoryRecord } from '../types/memory'
-import { db, safeAddRecord } from './db'
+import { db } from './db'
 import { expandToChunks } from './chunking'
 import { queueEmbedding } from './offscreen'
 import { miniSearch } from './search'
-import { reconstructLogicalContent } from '../recovery/logical-content'
+import { tryReconstructLogicalContent } from '../recovery/logical-content'
 import { mergeIncomingWithAuthoritativeGraph } from '../recovery/graph-authority'
 
 export type PersistResult = 'added' | 'updated' | 'skipped'
@@ -41,85 +41,45 @@ export async function persistRecordWithChunks(
   const hasExisting = !!existing && !existing.isDeleted
   const hasChunks = existingChunks.length > 0
 
-  if (!hasExisting && !hasChunks) {
-    for (const chunk of expandToChunks(record)) {
-      const id = await safeAddRecord(chunk)
-      if (id) {
-        indexChunk(chunk)
-        queueEmbedding(chunk)
-      }
-    }
-    return 'added'
+  let storedLogical: string | undefined
+  let storedComplete = true
+  if (hasExisting) {
+    storedLogical = existing.content
+  } else if (hasChunks) {
+    const reconstruction = tryReconstructLogicalContent(existingChunks)
+    storedLogical = reconstruction.content
+    storedComplete = reconstruction.complete
   }
 
-  const storedLogical = hasExisting
-    ? existing.content
-    : reconstructLogicalContent(existingChunks)
-  if (storedLogical === record.content) return 'skipped'
+  if ((hasExisting || hasChunks) && storedComplete && storedLogical === record.content) {
+    return 'skipped'
+  }
 
-  // Carry stronger raw/provider graph identity into any replacement physical
-  // records. New chunk offsets are generated after this merge.
+  // Carry stronger raw/provider graph identity into the replacement physical
+  // records. Incomplete existing groups are deliberately replaced rather than
+  // trusted or concatenated as canonical content.
   const authoritySource = hasExisting
     ? existing
     : [...existingChunks].sort((a, b) => (a.chunkIndex ?? 0) - (b.chunkIndex ?? 0))[0]
   const writeRecord = authoritySource
     ? mergeIncomingWithAuthoritativeGraph(authoritySource, record)
     : record
+  const physical = expandToChunks(writeRecord)
 
-  const chunks = expandToChunks(writeRecord)
-  const isLong = chunks.length > 1
-
-  const staleRecords = existingChunks.length > 0
-    ? existingChunks
-    : await db.memories.where('parentId').equals(record.id).toArray()
-  await db.memories.where('parentId').equals(record.id).delete()
-  if (isLong && hasExisting) {
-    staleRecords.push(existing)
-    await db.memories.delete(existing.id)
-  }
-  for (const stale of staleRecords) {
+  const removed = await db.replaceLogicalRecordAtomically(record.id, physical)
+  for (const stale of removed) {
     try {
       miniSearch.remove(stale)
     } catch {
       /* not indexed */
     }
   }
-
-  if (isLong) {
-    for (const chunk of chunks) {
-      const id = await safeAddRecord(chunk)
-      if (id) {
-        indexChunk(chunk)
-        queueEmbedding(chunk)
-      }
-    }
-    return 'updated'
+  for (const chunk of physical) {
+    indexChunk(chunk)
+    queueEmbedding(chunk)
   }
 
-  const patch: Partial<MemoryRecord> = {
-    content: writeRecord.content,
-    timestamp: writeRecord.timestamp,
-    isPartial: writeRecord.isPartial ?? false,
-    hasEmbedding: 0,
-    embedding: undefined,
-  }
-  if (writeRecord.model) patch.model = writeRecord.model
-  if (writeRecord.conversationTitle) patch.conversationTitle = writeRecord.conversationTitle
-
-  if (hasExisting) {
-    await db.memories.update(record.id, patch)
-  } else {
-    await db.memories.add({ ...writeRecord, hasEmbedding: 0 } as MemoryRecord)
-  }
-
-  try {
-    miniSearch.remove({ ...writeRecord, hasEmbedding: 0 })
-  } catch {
-    /* not indexed */
-  }
-  indexChunk({ ...writeRecord, hasEmbedding: 0 })
-  queueEmbedding({ ...writeRecord, hasEmbedding: 0 })
-  return 'updated'
+  return hasExisting || hasChunks ? 'updated' : 'added'
 }
 
 /** Persist a full parsed ChatGPT conversation and update its stored title. */
