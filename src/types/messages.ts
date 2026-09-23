@@ -274,7 +274,14 @@ export interface SearchResult {
   branchIndex?: number
   originalMessageId?: string
   metadata?: Record<string, unknown>
+  /** Legacy fused/rank score retained for compatibility. */
   similarityScore: number
+  /** Experimental v0.17 diagnostic: best raw cosine/dot-product score for this logical message. */
+  vectorSimilarity?: number
+  /** Experimental v0.17 diagnostic: top lexical query-term coverage for this logical message. */
+  lexicalCoverage?: number
+  /** Experimental v0.17 diagnostic: whether lexical search succeeded in strict AND or OR fallback mode. */
+  lexicalMode?: 'AND' | 'OR'
 }
 
 export interface SearchMemoriesResponse {
