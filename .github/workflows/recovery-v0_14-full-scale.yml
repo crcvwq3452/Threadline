@@ -161,32 +161,55 @@ jobs:
             )
             const worker=await workerFor(context)
             const extensionId=new URL(worker.url()).host
+            await context.route('https://chatgpt.com/**',route=>route.fulfill({
+              status:200,contentType:'text/html',
+              body:'<!doctype html><html><head><title>Threadline Full Scale CI</title></head><body><main>mock chatgpt</main></body></html>'
+            }))
             const host=await context.newPage()
-            await host.goto('https://chatgpt.com/',{waitUntil:'domcontentloaded',timeout:30000})
+            await host.goto('https://chatgpt.com/',{waitUntil:'domcontentloaded',timeout:10000})
             await host.locator('#ai-memory-float-root').waitFor({state:'attached',timeout:15000})
             const panel=await openPanel(host,worker)
 
-            const toggle=panel.getByRole('button',{name:/Import backup/i})
+            const beforeReport=await worker.evaluate(async()=>{
+              const stored=await chrome.storage.local.get(['threadlineLastImportReport'])
+              return stored.threadlineLastImportReport || null
+            })
+            const beforeAt=beforeReport?.at || null
+
+            const importContainer=panel.locator('input[type="file"]').first().locator('..')
+            let toggle=importContainer.locator(':scope > button').first()
+            if(!(await toggle.count())) throw new Error('Import toggle missing')
             await toggle.click()
-            const provider=panel.locator('button').filter({hasText:'ChatGPT (conversations.json)'}).first()
-            await provider.waitFor({state:'visible',timeout:10000})
+            const scroll=panel.locator('[data-testid="threadline-menu-scroll"]')
+            if(await scroll.count()) await scroll.evaluate(el=>{ el.scrollTop = el.scrollHeight })
+            await sleep(200)
+            let provider=panel.locator('button').filter({hasText:'ChatGPT (conversations.json)'}).first()
+            if(!(await provider.count())) throw new Error('ChatGPT importer missing')
+            await provider.evaluate(el=>el.scrollIntoView({block:'nearest'}))
+            await sleep(100)
+            provider=panel.locator('button').filter({hasText:'ChatGPT (conversations.json)'}).first()
             await provider.click({noWaitAfter:true})
             const input=panel.locator('input[type="file"][accept*=".zip"]').last()
 
             const start=Date.now()
             await input.setInputFiles(zip)
-            let status=''
+            let report=null
             while(Date.now()-start<12*60*1000){
-              status=(await panel.innerText()).replace(/\s+/g,' ')
-              if(/ChatGPT ZIP import complete|Successfully imported \d+ .* from ChatGPT|ChatGPT: imported \d+ new/i.test(status)) break
-              if(/failed to import|import failed/i.test(status)) throw new Error('Full-scale import failed: '+status)
+              report=await worker.evaluate(async()=>{
+                const stored=await chrome.storage.local.get(['threadlineLastImportReport'])
+                return stored.threadlineLastImportReport || null
+              })
+              if(report?.at && report.at!==beforeAt){
+                if(report.status==='error') throw new Error('Full-scale import failed: '+String(report.message||''))
+                if(report.status==='success') break
+              }
               await sleep(1000)
             }
-            if(!/ChatGPT ZIP import complete|Successfully imported \d+ .* from ChatGPT|ChatGPT: imported \d+ new/i.test(status)){
-              throw new Error('Full-scale import timed out: '+status)
+            if(!report?.at || report.at===beforeAt || report.status!=='success'){
+              throw new Error('Full-scale import completion report timed out')
             }
             console.log('FULL_SCALE_IMPORT_MS',Date.now()-start)
-            console.log('FULL_SCALE_STATUS',status.slice(-1000))
+            console.log('FULL_SCALE_STATUS',String(report.message||''))
 
             const ext=await context.newPage()
             await ext.goto(`chrome-extension://${extensionId}/tabs/memory-graph.html`)
