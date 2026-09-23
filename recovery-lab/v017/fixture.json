@@ -169,9 +169,7 @@
     {
       "id": "stale_version_absent",
       "query": "STALE_VERSION_SENTINEL_119",
-      "expected_absent": [
-        "lab-update-target"
-      ]
+      "forbid_text": "STALE_VERSION_SENTINEL_119"
     }
   ]
 }
