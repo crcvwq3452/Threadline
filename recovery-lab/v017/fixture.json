@@ -1,0 +1,701 @@
+{
+  "version": 1,
+  "notes": "Synthetic retrieval torture fixture. No private/user corpus content. Phase 2 adds temporal, evolution, multi-hop, and abstention diagnostics under distractor load. Phase 3 supplies authoritative graph entities for the synthetic two-hop case and explicit temporal windows for bridge-level comparison.",
+  "current_session_id": "openai:lab-current",
+  "documents": [
+    {
+      "id": "lab-exact-003",
+      "session_id": "openai:lab-exact",
+      "timestamp": "2026-06-01T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Architecture marker ARCH-003 governs the cobalt routing layer. Its diagnostic token is COBALT_ORBIT_731."
+    },
+    {
+      "id": "lab-filename",
+      "session_id": "openai:lab-file",
+      "timestamp": "2026-06-02T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "The authoritative design note is stored in NEBULA_SPECS_2026-09-17.md and describes the observatory adapter."
+    },
+    {
+      "id": "lab-semantic",
+      "session_id": "openai:lab-semantic",
+      "timestamp": "2026-06-03T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "A domestic feline is resting peacefully on a comfortable sofa beside the window while afternoon light enters the room."
+    },
+    {
+      "id": "lab-policy-old",
+      "session_id": "openai:lab-policy-old",
+      "timestamp": "2026-05-01T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Early proposal: the derived index should become the permanent source of truth for Project Nebula."
+    },
+    {
+      "id": "lab-policy-new",
+      "session_id": "openai:lab-policy-new",
+      "timestamp": "2026-09-01T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Later correction and current rule: the immutable raw export remains the canonical source of truth; every index is derived and replaceable."
+    },
+    {
+      "id": "lab-branch-active",
+      "session_id": "openai:lab-branch",
+      "timestamp": "2026-06-04T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "The selected branch chose the ordinary silver adapter."
+    },
+    {
+      "id": "lab-branch-side",
+      "session_id": "openai:lab-branch",
+      "timestamp": "2026-06-04T12:01:00Z",
+      "branch": "inactive",
+      "source": "archive",
+      "content": "Inactive branch evidence contains SIDECHAIN_LANTERN_884 and proposes a violet adapter."
+    },
+    {
+      "id": "lab-history-config",
+      "session_id": "openai:lab-history",
+      "timestamp": "2026-07-01T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Historical recovery bridge configuration: use the amber relay and preserve provenance labels."
+    },
+    {
+      "id": "lab-current-config",
+      "session_id": "openai:lab-current",
+      "timestamp": "2026-09-22T12:00:00Z",
+      "branch": "active",
+      "source": "live",
+      "content": "Current-session text repeats the recovery bridge configuration phrase many times: recovery bridge configuration, recovery bridge configuration, recovery bridge configuration."
+    },
+    {
+      "id": "lab-continue-rule",
+      "session_id": "openai:lab-governance",
+      "timestamp": "2026-08-15T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Governance rule: the words continue and proceed authorize continued work only; they do not mean approval, acceptance, or canonization."
+    },
+    {
+      "id": "lab-update-target",
+      "session_id": "openai:lab-update",
+      "timestamp": "2026-08-20T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "LIVE_VERSION_SENTINEL_902 is the surviving updated form of this document."
+    },
+    {
+      "id": "lab-distractor",
+      "session_id": "openai:lab-distractor",
+      "timestamp": "2026-04-10T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "A gardening memo discusses violet flowers, silver watering cans, and ordinary window boxes."
+    },
+    {
+      "id": "lab-month-01",
+      "session_id": "openai:lab-month-01",
+      "timestamp": "2025-01-15T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Orbital migration used the alder gate for message routing."
+    },
+    {
+      "id": "lab-month-02",
+      "session_id": "openai:lab-month-02",
+      "timestamp": "2025-02-15T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Orbital migration used the birch gate for message routing."
+    },
+    {
+      "id": "lab-month-03",
+      "session_id": "openai:lab-month-03",
+      "timestamp": "2025-03-15T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Orbital migration used the cedar gate for message routing."
+    },
+    {
+      "id": "lab-month-04",
+      "session_id": "openai:lab-month-04",
+      "timestamp": "2025-04-15T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Orbital migration used the dogwood gate for message routing."
+    },
+    {
+      "id": "lab-month-05",
+      "session_id": "openai:lab-month-05",
+      "timestamp": "2025-05-15T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Orbital migration used the elm gate for message routing."
+    },
+    {
+      "id": "lab-month-06",
+      "session_id": "openai:lab-month-06",
+      "timestamp": "2025-06-15T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Orbital migration used the fir gate for message routing."
+    },
+    {
+      "id": "lab-month-07",
+      "session_id": "openai:lab-month-07",
+      "timestamp": "2025-07-15T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Orbital migration used the ginkgo gate for message routing."
+    },
+    {
+      "id": "lab-month-08",
+      "session_id": "openai:lab-month-08",
+      "timestamp": "2025-08-15T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Orbital migration used the hazel gate for message routing."
+    },
+    {
+      "id": "lab-month-09",
+      "session_id": "openai:lab-month-09",
+      "timestamp": "2025-09-15T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Orbital migration used the iris gate for message routing."
+    },
+    {
+      "id": "lab-month-10",
+      "session_id": "openai:lab-month-10",
+      "timestamp": "2025-10-15T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Orbital migration used the juniper gate for message routing."
+    },
+    {
+      "id": "lab-month-11",
+      "session_id": "openai:lab-month-11",
+      "timestamp": "2025-11-15T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Orbital migration used the kelp gate for message routing."
+    },
+    {
+      "id": "lab-month-12",
+      "session_id": "openai:lab-month-12",
+      "timestamp": "2025-12-15T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Orbital migration used the larch gate for message routing."
+    },
+    {
+      "id": "lab-month-13",
+      "session_id": "openai:lab-month-13",
+      "timestamp": "2026-01-15T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Orbital migration used the maple gate for message routing."
+    },
+    {
+      "id": "lab-month-14",
+      "session_id": "openai:lab-month-14",
+      "timestamp": "2026-02-15T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Orbital migration used the nutmeg gate for message routing."
+    },
+    {
+      "id": "lab-month-15",
+      "session_id": "openai:lab-month-15",
+      "timestamp": "2026-03-15T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Orbital migration used the olive gate for message routing."
+    },
+    {
+      "id": "lab-month-16",
+      "session_id": "openai:lab-month-16",
+      "timestamp": "2026-04-15T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Orbital migration used the pine gate for message routing."
+    },
+    {
+      "id": "lab-month-17",
+      "session_id": "openai:lab-month-17",
+      "timestamp": "2026-05-15T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Orbital migration used the quartz gate for message routing."
+    },
+    {
+      "id": "lab-month-18",
+      "session_id": "openai:lab-month-18",
+      "timestamp": "2026-06-15T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Orbital migration used the rowan gate for message routing."
+    },
+    {
+      "id": "lab-month-19",
+      "session_id": "openai:lab-month-19",
+      "timestamp": "2026-07-15T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Orbital migration used the spruce gate for message routing."
+    },
+    {
+      "id": "lab-month-20",
+      "session_id": "openai:lab-month-20",
+      "timestamp": "2026-08-15T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Orbital migration used the tulip gate for message routing."
+    },
+    {
+      "id": "lab-month-21",
+      "session_id": "openai:lab-month-21",
+      "timestamp": "2026-09-15T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Orbital migration used the umber gate for message routing."
+    },
+    {
+      "id": "lab-month-22",
+      "session_id": "openai:lab-month-22",
+      "timestamp": "2026-10-15T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Orbital migration used the violet gate for message routing."
+    },
+    {
+      "id": "lab-month-23",
+      "session_id": "openai:lab-month-23",
+      "timestamp": "2026-11-15T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Orbital migration used the willow gate for message routing."
+    },
+    {
+      "id": "lab-month-24",
+      "session_id": "openai:lab-month-24",
+      "timestamp": "2026-12-15T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Orbital migration used the yew gate for message routing."
+    },
+    {
+      "id": "lab-evolution-old",
+      "session_id": "openai:lab-evolution-old",
+      "timestamp": "2026-02-10T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Initial Quartz architecture allowed the derived ledger to rewrite source documents after indexing."
+    },
+    {
+      "id": "lab-evolution-mid",
+      "session_id": "openai:lab-evolution-mid",
+      "timestamp": "2026-05-12T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "A provenance audit found that mutated originals made it impossible to distinguish evidence from reconstruction."
+    },
+    {
+      "id": "lab-evolution-new",
+      "session_id": "openai:lab-evolution-new",
+      "timestamp": "2026-08-20T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Final policy made original source material immutable while every search index became disposable and rebuildable."
+    },
+    {
+      "id": "lab-hop-a",
+      "session_id": "openai:lab-hop-a",
+      "timestamp": "2026-03-01T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Project Kestrel depends on transport codename Meridian.",
+      "entities": [
+        "Project Kestrel",
+        "Meridian"
+      ]
+    },
+    {
+      "id": "lab-hop-b",
+      "session_id": "openai:lab-hop-b",
+      "timestamp": "2026-03-02T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Transport Meridian authenticates with key codename Solstice.",
+      "entities": [
+        "Meridian",
+        "Solstice"
+      ]
+    },
+    {
+      "id": "lab-hop-distractor-01",
+      "session_id": "openai:lab-hop-distractor-01",
+      "timestamp": "2026-03-03T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Project Ibis transport node 1 authenticates a routine channel with rotating key family 101.",
+      "entities": [
+        "Project Ibis"
+      ]
+    },
+    {
+      "id": "lab-hop-distractor-02",
+      "session_id": "openai:lab-hop-distractor-02",
+      "timestamp": "2026-03-04T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Project Junco transport node 2 authenticates a routine channel with rotating key family 102.",
+      "entities": [
+        "Project Junco"
+      ]
+    },
+    {
+      "id": "lab-hop-distractor-03",
+      "session_id": "openai:lab-hop-distractor-03",
+      "timestamp": "2026-03-05T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Project Kite transport node 3 authenticates a routine channel with rotating key family 103.",
+      "entities": [
+        "Project Kite"
+      ]
+    },
+    {
+      "id": "lab-hop-distractor-04",
+      "session_id": "openai:lab-hop-distractor-04",
+      "timestamp": "2026-03-06T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Project Lynx transport node 4 authenticates a routine channel with rotating key family 104.",
+      "entities": [
+        "Project Lynx"
+      ]
+    },
+    {
+      "id": "lab-hop-distractor-05",
+      "session_id": "openai:lab-hop-distractor-05",
+      "timestamp": "2026-03-07T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Project Heron transport node 5 authenticates a routine channel with rotating key family 105.",
+      "entities": [
+        "Project Heron"
+      ]
+    },
+    {
+      "id": "lab-hop-distractor-06",
+      "session_id": "openai:lab-hop-distractor-06",
+      "timestamp": "2026-03-08T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Project Ibis transport node 6 authenticates a routine channel with rotating key family 106.",
+      "entities": [
+        "Project Ibis"
+      ]
+    },
+    {
+      "id": "lab-hop-distractor-07",
+      "session_id": "openai:lab-hop-distractor-07",
+      "timestamp": "2026-03-09T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Project Junco transport node 7 authenticates a routine channel with rotating key family 107.",
+      "entities": [
+        "Project Junco"
+      ]
+    },
+    {
+      "id": "lab-hop-distractor-08",
+      "session_id": "openai:lab-hop-distractor-08",
+      "timestamp": "2026-03-10T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Project Kite transport node 8 authenticates a routine channel with rotating key family 108.",
+      "entities": [
+        "Project Kite"
+      ]
+    },
+    {
+      "id": "lab-hop-distractor-09",
+      "session_id": "openai:lab-hop-distractor-09",
+      "timestamp": "2026-03-11T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Project Lynx transport node 9 authenticates a routine channel with rotating key family 109.",
+      "entities": [
+        "Project Lynx"
+      ]
+    },
+    {
+      "id": "lab-hop-distractor-10",
+      "session_id": "openai:lab-hop-distractor-10",
+      "timestamp": "2026-03-12T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Project Heron transport node 10 authenticates a routine channel with rotating key family 110.",
+      "entities": [
+        "Project Heron"
+      ]
+    },
+    {
+      "id": "lab-hop-distractor-11",
+      "session_id": "openai:lab-hop-distractor-11",
+      "timestamp": "2026-03-13T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Project Ibis transport node 11 authenticates a routine channel with rotating key family 111.",
+      "entities": [
+        "Project Ibis"
+      ]
+    },
+    {
+      "id": "lab-hop-distractor-12",
+      "session_id": "openai:lab-hop-distractor-12",
+      "timestamp": "2026-03-14T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Project Junco transport node 12 authenticates a routine channel with rotating key family 112.",
+      "entities": [
+        "Project Junco"
+      ]
+    },
+    {
+      "id": "lab-hop-distractor-13",
+      "session_id": "openai:lab-hop-distractor-13",
+      "timestamp": "2026-03-15T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Project Kite transport node 13 authenticates a routine channel with rotating key family 113.",
+      "entities": [
+        "Project Kite"
+      ]
+    },
+    {
+      "id": "lab-hop-distractor-14",
+      "session_id": "openai:lab-hop-distractor-14",
+      "timestamp": "2026-03-16T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Project Lynx transport node 14 authenticates a routine channel with rotating key family 114.",
+      "entities": [
+        "Project Lynx"
+      ]
+    },
+    {
+      "id": "lab-hop-distractor-15",
+      "session_id": "openai:lab-hop-distractor-15",
+      "timestamp": "2026-03-17T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Project Heron transport node 15 authenticates a routine channel with rotating key family 115.",
+      "entities": [
+        "Project Heron"
+      ]
+    },
+    {
+      "id": "lab-hop-distractor-16",
+      "session_id": "openai:lab-hop-distractor-16",
+      "timestamp": "2026-03-18T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Project Ibis transport node 16 authenticates a routine channel with rotating key family 116.",
+      "entities": [
+        "Project Ibis"
+      ]
+    },
+    {
+      "id": "lab-hop-distractor-17",
+      "session_id": "openai:lab-hop-distractor-17",
+      "timestamp": "2026-03-19T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Project Junco transport node 17 authenticates a routine channel with rotating key family 117.",
+      "entities": [
+        "Project Junco"
+      ]
+    },
+    {
+      "id": "lab-hop-distractor-18",
+      "session_id": "openai:lab-hop-distractor-18",
+      "timestamp": "2026-03-20T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Project Kite transport node 18 authenticates a routine channel with rotating key family 118.",
+      "entities": [
+        "Project Kite"
+      ]
+    },
+    {
+      "id": "lab-hop-distractor-19",
+      "session_id": "openai:lab-hop-distractor-19",
+      "timestamp": "2026-03-21T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Project Lynx transport node 19 authenticates a routine channel with rotating key family 119.",
+      "entities": [
+        "Project Lynx"
+      ]
+    },
+    {
+      "id": "lab-hop-distractor-20",
+      "session_id": "openai:lab-hop-distractor-20",
+      "timestamp": "2026-03-22T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Project Heron transport node 20 authenticates a routine channel with rotating key family 120.",
+      "entities": [
+        "Project Heron"
+      ]
+    }
+  ],
+  "queries": [
+    {
+      "id": "exact_identifier",
+      "query": "ARCH-003",
+      "expected": [
+        "lab-exact-003"
+      ],
+      "must_top1": true
+    },
+    {
+      "id": "exact_filename",
+      "query": "NEBULA_SPECS_2026-09-17.md",
+      "expected": [
+        "lab-filename"
+      ],
+      "must_top1": true
+    },
+    {
+      "id": "semantic_paraphrase",
+      "query": "kitten napping on a couch",
+      "expected": [
+        "lab-semantic"
+      ],
+      "must_top5": true
+    },
+    {
+      "id": "later_correction",
+      "query": "What is the canonical source of truth now?",
+      "expected": [
+        "lab-policy-new"
+      ],
+      "must_top5": true
+    },
+    {
+      "id": "inactive_branch",
+      "query": "SIDECHAIN_LANTERN_884",
+      "expected": [
+        "lab-branch-side"
+      ],
+      "must_top1": true
+    },
+    {
+      "id": "governance",
+      "query": "Does continue mean approval or just keep working?",
+      "expected": [
+        "lab-continue-rule"
+      ],
+      "must_top5": true
+    },
+    {
+      "id": "exclude_current_session",
+      "query": "recovery bridge configuration",
+      "expected": [
+        "lab-history-config"
+      ],
+      "exclude_session": "openai:lab-current",
+      "must_top5": true
+    },
+    {
+      "id": "updated_version",
+      "query": "LIVE_VERSION_SENTINEL_902",
+      "expected": [
+        "lab-update-target"
+      ],
+      "must_top1": true
+    },
+    {
+      "id": "stale_version_absent",
+      "query": "STALE_VERSION_SENTINEL_119",
+      "forbid_text": "STALE_VERSION_SENTINEL_119"
+    },
+    {
+      "id": "temporal_exact_month",
+      "query": "Which gate did Orbital migration use in April 2026?",
+      "expected": [
+        "lab-month-16"
+      ],
+      "must_top1": true,
+      "category": "temporal",
+      "temporal_window": {
+        "start": "2026-04-01T00:00:00Z",
+        "end": "2026-04-30T23:59:59Z"
+      }
+    },
+    {
+      "id": "temporal_relative",
+      "query": "Which gate did Orbital migration use two months ago?",
+      "expected": [
+        "lab-month-19"
+      ],
+      "must_top1": true,
+      "category": "temporal",
+      "temporal_window": {
+        "start": "2026-07-01T00:00:00Z",
+        "end": "2026-07-31T23:59:59Z"
+      }
+    },
+    {
+      "id": "temporal_last_spring",
+      "query": "Which gate did Orbital migration use last spring?",
+      "expected": [
+        "lab-month-15",
+        "lab-month-16",
+        "lab-month-17"
+      ],
+      "must_top1": true,
+      "category": "temporal",
+      "temporal_window": {
+        "start": "2026-03-01T00:00:00Z",
+        "end": "2026-05-31T23:59:59Z"
+      }
+    },
+    {
+      "id": "evolution_three_stage",
+      "query": "How did the Quartz source-handling architecture evolve from its initial rule, through the provenance problem, to the final policy?",
+      "expected_all_top5": [
+        "lab-evolution-old",
+        "lab-evolution-mid",
+        "lab-evolution-new"
+      ],
+      "category": "evolution"
+    },
+    {
+      "id": "multihop_key",
+      "query": "What key ultimately authenticates Project Kestrel's transport?",
+      "expected_all_top5": [
+        "lab-hop-a",
+        "lab-hop-b"
+      ],
+      "category": "multihop"
+    },
+    {
+      "id": "no_evidence_diagnostic",
+      "query": "What percentage tax does Europa charge on Martian sapphire imports?",
+      "diagnostic": "abstention",
+      "category": "abstention"
+    }
+  ]
+}

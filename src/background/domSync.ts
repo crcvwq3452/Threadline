@@ -2,10 +2,11 @@ import type { DomMessage, DomSyncRequest, DomSyncResponse } from "../types/messa
 import type { MemoryRecord } from "../types/memory";
 import { expandToChunks } from "./chunking";
 import { queueEmbedding } from "./offscreen";
-import { safeAddRecord, isCaptureEnabled, db } from "./db";
+import { isCaptureEnabled, db } from "./db";
 import { miniSearch } from "./search";
 import { normalizeContent } from "./adapters/base";
 import { isTransientAssistantMessage } from "../utils/transient-assistant";
+import { mergeIncomingWithAuthoritativeGraph } from "../recovery/graph-authority";
 import { getAttachmentSaveMode, saveDomAttachments } from "./attachments";
 
 // ─── DOM Sync Handler ─────────────────────────────────────────────────────────
@@ -37,21 +38,50 @@ function drainSyncQueue(): void {
     });
 }
 
-export function enqueueSyncRecord(record: MemoryRecord): void {
-  _syncQueue.push(async () => {
-    for (const chunk of expandToChunks(record)) {
-      const id = await safeAddRecord(chunk);
-      if (id) {
-        try {
-          miniSearch.add(chunk);
-        } catch {
-          /* duplicate id — already indexed */
+export function enqueueSyncRecord(record: MemoryRecord): Promise<void> {
+  return new Promise((resolve, reject) => {
+    _syncQueue.push(async () => {
+      try {
+        const direct = await db.memories.get(record.id);
+        const existingChunks = direct
+          ? []
+          : await db.memories.where("parentId").equals(record.id).toArray();
+        const authoritySource = direct && !direct.isDeleted
+          ? direct
+          : [...existingChunks]
+              .filter((chunk) => !chunk.isDeleted)
+              .sort((a, b) => (a.chunkIndex ?? 0) - (b.chunkIndex ?? 0))[0];
+        const writeRecord = authoritySource
+          ? mergeIncomingWithAuthoritativeGraph(authoritySource, record)
+          : record;
+        const physical = expandToChunks(writeRecord);
+
+        // One transaction replaces the entire logical message. A service-worker
+        // interruption can no longer commit c21 without c0..c20.
+        const removed = await db.replaceLogicalRecordAtomically(record.id, physical);
+        for (const stale of removed) {
+          try {
+            miniSearch.remove(stale);
+          } catch {
+            /* not indexed */
+          }
         }
-        queueEmbedding(chunk);
+        for (const chunk of physical) {
+          try {
+            miniSearch.add(chunk);
+          } catch {
+            /* duplicate id — already indexed */
+          }
+          queueEmbedding(chunk);
+        }
+        resolve();
+      } catch (err) {
+        reject(err);
+        throw err;
       }
-    }
+    });
+    drainSyncQueue();
   });
-  drainSyncQueue();
 }
 
 type ResolvedDomMessage = DomMessage & {
@@ -432,6 +462,48 @@ export async function handleDomSync(
     ),
   );
 
+  // Correct truncated/edited content on already-stored messages: a bubble
+  // scanned mid-stream holds partial text, and edits change the text in
+  // place. When the stored text changed, drop the stale index entries and
+  // re-enqueue so chunks + embedding are rebuilt from the new text.
+  const refreshedIds = new Set<string>();
+  for (const msg of messages) {
+    const result = await db.assessDomMessageContent(msg.messageId, msg.content);
+    if (!result.changed) continue;
+    refreshedIds.add(msg.messageId);
+  }
+  if (refreshedIds.size > 0) {
+    for (const msg of messages) {
+      if (!refreshedIds.has(msg.messageId)) continue;
+      const refreshedRecord: MemoryRecord = {
+        id: msg.messageId,
+        role: msg.role,
+        content: msg.content,
+        provider,
+        sessionId: msg.sessionId,
+        originalMessageId: msg.messageId,
+        parentMessageId: msg.parentMessageId,
+        source: "dom_scan",
+        sourceUrl: url,
+        conversationTitle: msg.pageTitle,
+        timestamp: msg.scannedAt,
+        createdAt: Date.now(),
+        turnIndex: msg.turnIndex,
+        roundIndex: msg.roundIndex,
+        branchIndex: msg.branchIndex,
+        branchId: msg.branchId,
+        pathId: msg.pathId,
+        isPartial: false,
+        isDeleted: false,
+        isSuperseded: false,
+        metadata: domGraphMetadata(msg, url),
+      };
+      // Atomic replacement handles short<->long transitions and repairs any
+      // previously incomplete physical chunk group.
+      await enqueueSyncRecord(refreshedRecord);
+    }
+  }
+
   const newMessages = messages.filter((m) => newIds.has(m.messageId));
 
   // Gemini migration dedup: existing records may have random XHR-captured UUIDs
@@ -481,7 +553,7 @@ export async function handleDomSync(
 
   if (shouldPersist) {
     for (const record of recordsToSave) {
-      enqueueSyncRecord(record);
+      await enqueueSyncRecord(record);
     }
     const attachmentsBySession = new Map<string, ResolvedDomMessage["attachments"]>();
     for (const msg of messages) {

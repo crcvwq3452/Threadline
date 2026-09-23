@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import 'fake-indexeddb/auto'
 import { MemoryDatabase } from '../../../src/background/db'
 import type { MemoryRecord } from '../../../src/types/memory'
+import { expandToChunks } from '../../../src/background/chunking'
 
 function makeRecord(i: number): MemoryRecord {
   return {
@@ -213,5 +214,150 @@ describe('MemoryDatabase graph queries', () => {
       timestamp: Date.parse('2026-06-19T23:40:21+08:00'),
       isChunked: true,
     })
+  })
+})
+
+describe('MemoryDatabase.replaceDomMessageContent — truncated-DOM regression', () => {
+  let db: MemoryDatabase
+
+  beforeEach(async () => {
+    db = new MemoryDatabase()
+    await db.open()
+  })
+
+  afterEach(async () => {
+    await db.delete()
+  })
+
+  it('updates a short stored message when a fuller scan arrives', async () => {
+    await db.addRecord({ ...makeRecord(0), id: 'dom-x', content: 'partial' })
+    const result = await db.replaceDomMessageContent('dom-x', 'partial but complete')
+    expect(result.changed).toBe(true)
+    const stored = await db.memories.get('dom-x')
+    expect(stored?.content).toBe('partial but complete')
+    expect(stored?.hasEmbedding).toBe(0)
+  })
+
+  it('does not regress to a shorter prefix of the stored text (mid-stream scan)', async () => {
+    await db.addRecord({ ...makeRecord(0), id: 'dom-y', content: 'the full complete answer' })
+    const result = await db.replaceDomMessageContent('dom-y', 'the full')
+    expect(result.changed).toBe(false)
+    const stored = await db.memories.get('dom-y')
+    expect(stored?.content).toBe('the full complete answer')
+  })
+
+  it('replaces chunk records for long messages and returns their ids', async () => {
+    const long = 'A'.repeat(600)
+    for (const [i, chunk] of ['A'.repeat(500), 'A'.repeat(100)].entries()) {
+      await db.addRecord({
+        ...makeRecord(0),
+        id: `dom-z-c${i}`,
+        parentId: 'dom-z',
+        chunkIndex: i,
+        content: chunk,
+      })
+    }
+    const result = await db.replaceDomMessageContent('dom-z', 'B'.repeat(600))
+    expect(result.changed).toBe(true)
+    expect(result.removedRecords.map((r) => r.id).sort()).toEqual(['dom-z-c0', 'dom-z-c1'])
+    const chunks = await db.memories.where('parentId').equals('dom-z').toArray()
+    expect(chunks).toHaveLength(0)
+  })
+})
+
+
+describe('MemoryDatabase incomplete-chunk quarantine — real c21/9124 regression', () => {
+  let db: MemoryDatabase
+
+  beforeEach(async () => {
+    db = new MemoryDatabase()
+    await db.open()
+  })
+
+  afterEach(async () => {
+    await db.delete()
+  })
+
+  it('keeps healthy Sessions visible when one logical message starts at c21 / offset 9124', async () => {
+    await db.addRecord({
+      ...makeRecord(0),
+      id: 'healthy-u',
+      role: 'user',
+      content: 'healthy session',
+      sessionId: 'openai:healthy',
+    })
+
+    const parentId = 'e1f03bbb-d021-4246-a15b-cc0ac97ba6f7'
+    await db.addRecord({
+      ...makeRecord(1),
+      id: parentId + '-c21',
+      role: 'assistant',
+      sessionId: 'openai:broken',
+      parentId,
+      chunkIndex: 21,
+      content: 'A'.repeat(500),
+      metadata: { chunkStartUtf16: 9124, chunkLengthUtf16: 500 },
+    })
+    await db.addRecord({
+      ...makeRecord(2),
+      id: parentId + '-c22',
+      role: 'assistant',
+      sessionId: 'openai:broken',
+      parentId,
+      chunkIndex: 22,
+      content: 'A'.repeat(75) + 'B'.repeat(425),
+      metadata: { chunkStartUtf16: 9549, chunkLengthUtf16: 500 },
+    })
+
+    const { sessions, total } = await db.querySessions()
+    expect(total).toBe(2)
+    expect(sessions.map((session) => session.sessionId).sort()).toEqual([
+      'openai:broken',
+      'openai:healthy',
+    ])
+
+    const { records } = await db.getSessionGraph('openai:broken')
+    expect(records).toHaveLength(1)
+    expect(records[0].metadata?.chunkIntegrity).toBe('incomplete')
+    expect(String(records[0].metadata?.chunkReconstructionError)).toContain(
+      'Chunk offset gap: expected <= 0, got 9124',
+    )
+    expect(records[0].content).toContain('Incomplete local capture')
+  })
+
+  it('atomically repairs an incomplete physical group with a complete logical message', async () => {
+    const parentId = 'e1f03bbb-d021-4246-a15b-cc0ac97ba6f7'
+    await db.addRecord({
+      ...makeRecord(1),
+      id: parentId + '-c21',
+      role: 'assistant',
+      sessionId: 'openai:repair',
+      parentId,
+      chunkIndex: 21,
+      content: 'A'.repeat(500),
+      metadata: { chunkStartUtf16: 9124, chunkLengthUtf16: 500 },
+    })
+
+    const logical: MemoryRecord = {
+      ...makeRecord(2),
+      id: parentId,
+      role: 'assistant',
+      sessionId: 'openai:repair',
+      content: 'COMPLETE '.repeat(140),
+    }
+    const physical = expandToChunks(logical)
+    await db.replaceLogicalRecordAtomically(parentId, physical)
+
+    const stored = await db.memories.where('parentId').equals(parentId).toArray()
+    expect(stored.length).toBeGreaterThan(1)
+    expect(stored.some((record) => record.id.endsWith('-c21') && record.chunkIndex === 21)).toBe(
+      physical.some((record) => record.chunkIndex === 21),
+    )
+    expect(stored.find((record) => record.chunkIndex === 0)?.metadata?.chunkStartUtf16).toBe(0)
+
+    const { records } = await db.getSessionGraph('openai:repair')
+    expect(records).toHaveLength(1)
+    expect(records[0].metadata?.chunkIntegrity).not.toBe('incomplete')
+    expect(records[0].content).toBe(logical.content)
   })
 })

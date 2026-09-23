@@ -1,0 +1,1 @@
+Isolated phase-4 lab: Threadline corrected temporal bridge; Hindsight chunks enriched only with source-authoritative timestamps/entities.
