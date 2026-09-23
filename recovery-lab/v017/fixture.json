@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "notes": "Synthetic retrieval torture fixture. No private/user corpus content. Phase 2 adds temporal, evolution, multi-hop, and abstention diagnostics under distractor load.",
+  "notes": "Synthetic retrieval torture fixture. No private/user corpus content. Phase 2 adds temporal, evolution, multi-hop, and abstention diagnostics under distractor load. Phase 3 supplies authoritative graph entities for the synthetic two-hop case and explicit temporal windows for bridge-level comparison.",
   "current_session_id": "openai:lab-current",
   "documents": [
     {
@@ -321,7 +321,11 @@
       "timestamp": "2026-03-01T12:00:00Z",
       "branch": "active",
       "source": "archive",
-      "content": "Project Kestrel depends on transport codename Meridian."
+      "content": "Project Kestrel depends on transport codename Meridian.",
+      "entities": [
+        "Project Kestrel",
+        "Meridian"
+      ]
     },
     {
       "id": "lab-hop-b",
@@ -329,7 +333,11 @@
       "timestamp": "2026-03-02T12:00:00Z",
       "branch": "active",
       "source": "archive",
-      "content": "Transport Meridian authenticates with key codename Solstice."
+      "content": "Transport Meridian authenticates with key codename Solstice.",
+      "entities": [
+        "Meridian",
+        "Solstice"
+      ]
     },
     {
       "id": "lab-hop-distractor-01",
@@ -337,7 +345,10 @@
       "timestamp": "2026-03-03T12:00:00Z",
       "branch": "active",
       "source": "archive",
-      "content": "Project Ibis transport node 1 authenticates a routine channel with rotating key family 101."
+      "content": "Project Ibis transport node 1 authenticates a routine channel with rotating key family 101.",
+      "entities": [
+        "Project Ibis"
+      ]
     },
     {
       "id": "lab-hop-distractor-02",
@@ -345,7 +356,10 @@
       "timestamp": "2026-03-04T12:00:00Z",
       "branch": "active",
       "source": "archive",
-      "content": "Project Junco transport node 2 authenticates a routine channel with rotating key family 102."
+      "content": "Project Junco transport node 2 authenticates a routine channel with rotating key family 102.",
+      "entities": [
+        "Project Junco"
+      ]
     },
     {
       "id": "lab-hop-distractor-03",
@@ -353,7 +367,10 @@
       "timestamp": "2026-03-05T12:00:00Z",
       "branch": "active",
       "source": "archive",
-      "content": "Project Kite transport node 3 authenticates a routine channel with rotating key family 103."
+      "content": "Project Kite transport node 3 authenticates a routine channel with rotating key family 103.",
+      "entities": [
+        "Project Kite"
+      ]
     },
     {
       "id": "lab-hop-distractor-04",
@@ -361,7 +378,10 @@
       "timestamp": "2026-03-06T12:00:00Z",
       "branch": "active",
       "source": "archive",
-      "content": "Project Lynx transport node 4 authenticates a routine channel with rotating key family 104."
+      "content": "Project Lynx transport node 4 authenticates a routine channel with rotating key family 104.",
+      "entities": [
+        "Project Lynx"
+      ]
     },
     {
       "id": "lab-hop-distractor-05",
@@ -369,7 +389,10 @@
       "timestamp": "2026-03-07T12:00:00Z",
       "branch": "active",
       "source": "archive",
-      "content": "Project Heron transport node 5 authenticates a routine channel with rotating key family 105."
+      "content": "Project Heron transport node 5 authenticates a routine channel with rotating key family 105.",
+      "entities": [
+        "Project Heron"
+      ]
     },
     {
       "id": "lab-hop-distractor-06",
@@ -377,7 +400,10 @@
       "timestamp": "2026-03-08T12:00:00Z",
       "branch": "active",
       "source": "archive",
-      "content": "Project Ibis transport node 6 authenticates a routine channel with rotating key family 106."
+      "content": "Project Ibis transport node 6 authenticates a routine channel with rotating key family 106.",
+      "entities": [
+        "Project Ibis"
+      ]
     },
     {
       "id": "lab-hop-distractor-07",
@@ -385,7 +411,10 @@
       "timestamp": "2026-03-09T12:00:00Z",
       "branch": "active",
       "source": "archive",
-      "content": "Project Junco transport node 7 authenticates a routine channel with rotating key family 107."
+      "content": "Project Junco transport node 7 authenticates a routine channel with rotating key family 107.",
+      "entities": [
+        "Project Junco"
+      ]
     },
     {
       "id": "lab-hop-distractor-08",
@@ -393,7 +422,10 @@
       "timestamp": "2026-03-10T12:00:00Z",
       "branch": "active",
       "source": "archive",
-      "content": "Project Kite transport node 8 authenticates a routine channel with rotating key family 108."
+      "content": "Project Kite transport node 8 authenticates a routine channel with rotating key family 108.",
+      "entities": [
+        "Project Kite"
+      ]
     },
     {
       "id": "lab-hop-distractor-09",
@@ -401,7 +433,10 @@
       "timestamp": "2026-03-11T12:00:00Z",
       "branch": "active",
       "source": "archive",
-      "content": "Project Lynx transport node 9 authenticates a routine channel with rotating key family 109."
+      "content": "Project Lynx transport node 9 authenticates a routine channel with rotating key family 109.",
+      "entities": [
+        "Project Lynx"
+      ]
     },
     {
       "id": "lab-hop-distractor-10",
@@ -409,7 +444,10 @@
       "timestamp": "2026-03-12T12:00:00Z",
       "branch": "active",
       "source": "archive",
-      "content": "Project Heron transport node 10 authenticates a routine channel with rotating key family 110."
+      "content": "Project Heron transport node 10 authenticates a routine channel with rotating key family 110.",
+      "entities": [
+        "Project Heron"
+      ]
     },
     {
       "id": "lab-hop-distractor-11",
@@ -417,7 +455,10 @@
       "timestamp": "2026-03-13T12:00:00Z",
       "branch": "active",
       "source": "archive",
-      "content": "Project Ibis transport node 11 authenticates a routine channel with rotating key family 111."
+      "content": "Project Ibis transport node 11 authenticates a routine channel with rotating key family 111.",
+      "entities": [
+        "Project Ibis"
+      ]
     },
     {
       "id": "lab-hop-distractor-12",
@@ -425,7 +466,10 @@
       "timestamp": "2026-03-14T12:00:00Z",
       "branch": "active",
       "source": "archive",
-      "content": "Project Junco transport node 12 authenticates a routine channel with rotating key family 112."
+      "content": "Project Junco transport node 12 authenticates a routine channel with rotating key family 112.",
+      "entities": [
+        "Project Junco"
+      ]
     },
     {
       "id": "lab-hop-distractor-13",
@@ -433,7 +477,10 @@
       "timestamp": "2026-03-15T12:00:00Z",
       "branch": "active",
       "source": "archive",
-      "content": "Project Kite transport node 13 authenticates a routine channel with rotating key family 113."
+      "content": "Project Kite transport node 13 authenticates a routine channel with rotating key family 113.",
+      "entities": [
+        "Project Kite"
+      ]
     },
     {
       "id": "lab-hop-distractor-14",
@@ -441,7 +488,10 @@
       "timestamp": "2026-03-16T12:00:00Z",
       "branch": "active",
       "source": "archive",
-      "content": "Project Lynx transport node 14 authenticates a routine channel with rotating key family 114."
+      "content": "Project Lynx transport node 14 authenticates a routine channel with rotating key family 114.",
+      "entities": [
+        "Project Lynx"
+      ]
     },
     {
       "id": "lab-hop-distractor-15",
@@ -449,7 +499,10 @@
       "timestamp": "2026-03-17T12:00:00Z",
       "branch": "active",
       "source": "archive",
-      "content": "Project Heron transport node 15 authenticates a routine channel with rotating key family 115."
+      "content": "Project Heron transport node 15 authenticates a routine channel with rotating key family 115.",
+      "entities": [
+        "Project Heron"
+      ]
     },
     {
       "id": "lab-hop-distractor-16",
@@ -457,7 +510,10 @@
       "timestamp": "2026-03-18T12:00:00Z",
       "branch": "active",
       "source": "archive",
-      "content": "Project Ibis transport node 16 authenticates a routine channel with rotating key family 116."
+      "content": "Project Ibis transport node 16 authenticates a routine channel with rotating key family 116.",
+      "entities": [
+        "Project Ibis"
+      ]
     },
     {
       "id": "lab-hop-distractor-17",
@@ -465,7 +521,10 @@
       "timestamp": "2026-03-19T12:00:00Z",
       "branch": "active",
       "source": "archive",
-      "content": "Project Junco transport node 17 authenticates a routine channel with rotating key family 117."
+      "content": "Project Junco transport node 17 authenticates a routine channel with rotating key family 117.",
+      "entities": [
+        "Project Junco"
+      ]
     },
     {
       "id": "lab-hop-distractor-18",
@@ -473,7 +532,10 @@
       "timestamp": "2026-03-20T12:00:00Z",
       "branch": "active",
       "source": "archive",
-      "content": "Project Kite transport node 18 authenticates a routine channel with rotating key family 118."
+      "content": "Project Kite transport node 18 authenticates a routine channel with rotating key family 118.",
+      "entities": [
+        "Project Kite"
+      ]
     },
     {
       "id": "lab-hop-distractor-19",
@@ -481,7 +543,10 @@
       "timestamp": "2026-03-21T12:00:00Z",
       "branch": "active",
       "source": "archive",
-      "content": "Project Lynx transport node 19 authenticates a routine channel with rotating key family 119."
+      "content": "Project Lynx transport node 19 authenticates a routine channel with rotating key family 119.",
+      "entities": [
+        "Project Lynx"
+      ]
     },
     {
       "id": "lab-hop-distractor-20",
@@ -489,7 +554,10 @@
       "timestamp": "2026-03-22T12:00:00Z",
       "branch": "active",
       "source": "archive",
-      "content": "Project Heron transport node 20 authenticates a routine channel with rotating key family 120."
+      "content": "Project Heron transport node 20 authenticates a routine channel with rotating key family 120.",
+      "entities": [
+        "Project Heron"
+      ]
     }
   ],
   "queries": [
@@ -570,7 +638,11 @@
         "lab-month-16"
       ],
       "must_top1": true,
-      "category": "temporal"
+      "category": "temporal",
+      "temporal_window": {
+        "start": "2026-04-01T00:00:00Z",
+        "end": "2026-04-30T23:59:59Z"
+      }
     },
     {
       "id": "temporal_relative",
@@ -579,7 +651,11 @@
         "lab-month-19"
       ],
       "must_top1": true,
-      "category": "temporal"
+      "category": "temporal",
+      "temporal_window": {
+        "start": "2026-07-01T00:00:00Z",
+        "end": "2026-07-31T23:59:59Z"
+      }
     },
     {
       "id": "temporal_last_spring",
@@ -590,7 +666,11 @@
         "lab-month-17"
       ],
       "must_top1": true,
-      "category": "temporal"
+      "category": "temporal",
+      "temporal_window": {
+        "start": "2026-03-01T00:00:00Z",
+        "end": "2026-05-31T23:59:59Z"
+      }
     },
     {
       "id": "evolution_three_stage",
