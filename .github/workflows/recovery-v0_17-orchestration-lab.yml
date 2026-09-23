@@ -1,0 +1,47 @@
+name: Recovery v0.17 Threadline orchestration lab
+
+on:
+  pull_request:
+    branches:
+      - recovery-v0.17-lab-base
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  orchestration:
+    name: Threadline v0.16 · transparent retrieval orchestration
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.25.0
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Frozen install and production build
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Run orchestrated retrieval fixture
+        shell: bash
+        run: |
+          mkdir -p recovery-lab/v017/out
+          xvfb-run -a node recovery-lab/v017/run_threadline_orchestrated.cjs \
+            --fixture recovery-lab/v017/fixture.json \
+            --output recovery-lab/v017/out/threadline-orchestrated.json
+      - name: Upload orchestration result
+        uses: actions/upload-artifact@v4
+        with:
+          name: v017-threadline-orchestrated-results
+          path: recovery-lab/v017/out/threadline-orchestrated.json
+          if-no-files-found: error
