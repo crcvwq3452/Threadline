@@ -49,6 +49,13 @@ def evaluate(query, rows):
     if query.get("must_top5") and (rank is None or rank > 5):
         ok = False
         reasons.append(f"expected top5, got rank={rank}")
+    expected_all = query.get("expected_all_top5", [])
+    if expected_all:
+        top5 = set(ids[:5])
+        missing = [target for target in expected_all if target not in top5]
+        if missing:
+            ok = False
+            reasons.append(f"expected all in top5, missing={missing}")
     forbid = query.get("forbid_text")
     if forbid and any(forbid in (r.get("text") or "") for r in rows):
         ok = False
