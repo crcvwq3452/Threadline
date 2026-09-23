@@ -206,8 +206,14 @@ function evaluate(q,rows){
         const ms=Number.isFinite(t) ? (t>1e12?t:t*1000) : Date.parse(String(r.timestamp||''))
         return Number.isFinite(ms) && ms>=start && ms<=end
       })
-      // Thin bridge: exact temporal scope first, preserving deterministic source records.
-      raw=windowRows
+      // Thin bridge: hard temporal scope first, then deterministic lexical relevance inside the window.
+      const stop=new Set(['which','what','when','where','who','how','did','does','do','the','a','an','in','on','at','of','to','for','from','ago','last','use','used','two','months','month','spring','april'])
+      const qterms=[...new Set(String(q.query).toLowerCase().match(/[a-z0-9_-]{3,}/g)||[])].filter(w=>!stop.has(w))
+      raw=windowRows.map(r=>{
+        const text=String(r.content||'').toLowerCase()
+        const lexical=qterms.reduce((n,w)=>n+(text.includes(w)?1:0),0)
+        return {...r,bridgeLexicalScore:lexical}
+      }).sort((a,b)=>(b.bridgeLexicalScore||0)-(a.bridgeLexicalScore||0) || String(a.id).localeCompare(String(b.id)))
     }
     let rows=raw
     if(q.exclude_session) rows=raw.filter(r=>r.sessionId!==q.exclude_session)
