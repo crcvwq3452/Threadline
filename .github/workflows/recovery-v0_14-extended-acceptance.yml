@@ -220,18 +220,20 @@ jobs:
             return panel
           }
 
-          async function readImportReport() {
+          async function readImportReport(worker) {
             return worker.evaluate(async()=>{
               const stored=await chrome.storage.local.get(['threadlineLastImportReport'])
               return stored.threadlineLastImportReport || null
             })
           }
 
-          async function importFile(panel, filePath, timeout=90000) {
-            const before=await readImportReport()
+          async function importFile(panel, worker, filePath, timeout=90000) {
+            const before=await readImportReport(worker)
             const beforeAt=before?.at || null
 
-            const toggle=panel.getByRole('button',{name:/Import backup/i})
+            const importContainer=panel.locator('input[type="file"]').first().locator('..')
+            let toggle=importContainer.locator(':scope > button').first()
+            if(!(await toggle.count())) throw new Error('Import toggle missing')
             await toggle.click()
             const scroll=panel.locator('[data-testid="threadline-menu-scroll"]')
             if(await scroll.count()) await scroll.evaluate(el=>{ el.scrollTop = el.scrollHeight })
@@ -255,7 +257,7 @@ jobs:
 
             const started=Date.now()
             while(Date.now()-started<timeout){
-              const report=await readImportReport()
+              const report=await readImportReport(worker)
               if(report?.at && report.at!==beforeAt){
                 if(report.status==='error') throw new Error('Import failure report: '+String(report.message||''))
                 if(report.status==='success') return String(report.message||'import complete')
@@ -285,7 +287,7 @@ jobs:
 
             // 1) Branch ZIP + duplicate idempotency.
             console.log('CASE branch import')
-            console.log(await importFile(panel, path.join(fixtures,'branch.zip')))
+            console.log(await importFile(panel, worker, path.join(fixtures,'branch.zip')))
             const ext=await context.newPage()
             await ext.goto(`chrome-extension://${extensionId}/tabs/memory-graph.html`)
             let all=await allMemories(ext)
@@ -293,7 +295,7 @@ jobs:
             const firstIds=new Set(branch.map(r=>r.id))
             if(!branch.some(r=>r.content.includes('SIDE_PERSIST_SENTINEL'))) throw new Error('side branch missing')
             console.log('CASE duplicate import')
-            console.log(await importFile(panel, path.join(fixtures,'branch.zip')))
+            console.log(await importFile(panel, worker, path.join(fixtures,'branch.zip')))
             all=await allMemories(ext)
             branch=sessionRecords(all,'openai:branch-e2e')
             const secondIds=new Set(branch.map(r=>r.id))
@@ -301,14 +303,14 @@ jobs:
 
             // 2) Direct .json path.
             console.log('CASE direct JSON')
-            console.log(await importFile(panel, path.join(fixtures,'direct.json')))
+            console.log(await importFile(panel, worker, path.join(fixtures,'direct.json')))
             all=await allMemories(ext)
             const direct=sessionRecords(all,'openai:direct-json-e2e')
             if(!direct.some(r=>r.content.includes('DIRECT_JSON_SENTINEL'))) throw new Error('direct JSON import missing')
 
             // 3) Long chunk exactness + lexical search.
             console.log('CASE long chunks')
-            console.log(await importFile(panel, path.join(fixtures,'long.zip')))
+            console.log(await importFile(panel, worker, path.join(fixtures,'long.zip')))
             all=await allMemories(ext)
             const long=sessionRecords(all,'openai:long-e2e')
             const expected=fs.readFileSync(path.join(fixtures,'long_expected.txt'),'utf8')
@@ -321,7 +323,7 @@ jobs:
             // 4) 94-conversation byte/topology stress.
             console.log('CASE stress94')
             const stressStart=Date.now()
-            console.log(await importFile(panel, path.join(fixtures,'stress94.zip'), 150000))
+            console.log(await importFile(panel, worker, path.join(fixtures,'stress94.zip'), 150000))
             console.log('stress94 import ms',Date.now()-stressStart)
             all=await allMemories(ext)
             const stressSessions=new Set(all.filter(r=>String(r.sessionId||'').startsWith('openai:stress-')).map(r=>r.sessionId))
