@@ -18,6 +18,7 @@ import {
   buildRecordToGroupMap,
   collectUniqueKeywordGroups,
   keywordSearchWithFallback,
+  lexicalCoverage,
   shouldPermitSemanticRerank,
 } from '../recovery/search-policy'
 
@@ -52,7 +53,11 @@ function groupKey(r: MemoryRecord): string {
 }
 
 /** Build one SearchResult from a logical message (single record or merged chunks). */
-function toSearchResult(records: MemoryRecord[], similarityScore: number): SearchResult | null {
+function toSearchResult(
+  records: MemoryRecord[],
+  similarityScore: number,
+  diagnostics?: { vectorSimilarity?: number; lexicalCoverage?: number; lexicalMode?: 'AND' | 'OR' },
+): SearchResult | null {
   const sorted = [...records].sort((a, b) => (a.chunkIndex ?? 0) - (b.chunkIndex ?? 0))
   const first = sorted[0]!
   const reconstruction = tryReconstructLogicalContent(sorted)
@@ -73,6 +78,9 @@ function toSearchResult(records: MemoryRecord[], similarityScore: number): Searc
     originalMessageId: first.originalMessageId,
     metadata: first.metadata,
     similarityScore,
+    vectorSimilarity: diagnostics?.vectorSimilarity,
+    lexicalCoverage: diagnostics?.lexicalCoverage,
+    lexicalMode: diagnostics?.lexicalMode,
   }
 }
 
@@ -111,6 +119,7 @@ export async function handleSearchMemories(
 
   // ── Route A: Vector + conditional time decay ───────────────────────────────
   const vectorGroupScores = new Map<string, number>()
+  const vectorRawGroupScores = new Map<string, number>()
   const vectorRecords = all.filter((r) => !!r.embedding)
 
   let queryEmbedding: Float32Array | null = null
@@ -130,6 +139,8 @@ export async function handleSearchMemories(
 
       const scored = applyTemporalDecay(baseScore, r, now, LAMBDA)
       const key = groupKey(r)
+      const rawBest = vectorRawGroupScores.get(key)
+      if (rawBest === undefined || baseScore > rawBest) vectorRawGroupScores.set(key, baseScore)
       const best = vectorGroupScores.get(key)
       if (best === undefined || scored > best) vectorGroupScores.set(key, scored)
     }
@@ -150,6 +161,14 @@ export async function handleSearchMemories(
   )
   const kwHits = keyword.results
   const kwRanked = collectUniqueKeywordGroups(kwHits, recordToGroup, POOL_SIZE)
+  const lexicalGroupCoverage = new Map<string, number>()
+  for (const hit of kwHits) {
+    const key = recordToGroup.get(hit.id)
+    if (!key) continue
+    const coverage = lexicalCoverage(query, hit)
+    const best = lexicalGroupCoverage.get(key) ?? 0
+    if (coverage > best) lexicalGroupCoverage.set(key, coverage)
+  }
 
   // Strict AND is inherently high-confidence. On OR fallback, use query-term
   // coverage to decide whether semantic evidence may reorder lexical results.
@@ -202,7 +221,15 @@ export async function handleSearchMemories(
 
   const results: SearchResult[] = topKeys
     .filter((key) => groupRecords.has(key))
-    .map((key) => toSearchResult(groupRecords.get(key)!, finalScores.get(key) ?? 0))
+    .map((key) => toSearchResult(
+      groupRecords.get(key)!,
+      finalScores.get(key) ?? 0,
+      {
+        vectorSimilarity: vectorRawGroupScores.get(key),
+        lexicalCoverage: lexicalGroupCoverage.get(key),
+        lexicalMode: keyword.mode,
+      },
+    ))
     .filter((result): result is SearchResult => result !== null)
 
   return { type: 'SEARCH_MEMORIES_RESPONSE', payload: { results, query } }
