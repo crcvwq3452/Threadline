@@ -1,0 +1,164 @@
+name: Recovery v0.17 retrieval lab — Threadline vs Hindsight
+
+on:
+  pull_request:
+    branches:
+      - recovery-v0.11-ci-base
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  threadline:
+    name: Threadline v0.16 · real MV3 retrieval
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.25.0
+          run_install: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Frozen install and production build
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run Threadline retrieval fixture
+        shell: bash
+        run: |
+          mkdir -p recovery-lab/v017/out
+          xvfb-run -a node recovery-lab/v017/run_threadline.cjs \
+            --fixture recovery-lab/v017/fixture.json \
+            --output recovery-lab/v017/out/threadline.json
+
+      - name: Upload Threadline result
+        uses: actions/upload-artifact@v4
+        with:
+          name: v017-threadline-results
+          path: recovery-lab/v017/out/threadline.json
+          if-no-files-found: error
+
+  hindsight:
+    name: Hindsight 0.10.1 · local no-LLM retrieval
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      HINDSIGHT_API_LLM_PROVIDER: none
+      HINDSIGHT_API_HOST: 127.0.0.1
+      HINDSIGHT_API_PORT: "8888"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install pinned Hindsight
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "hindsight-all==0.10.1"
+
+      - name: Start local Hindsight
+        shell: bash
+        run: |
+          nohup hindsight-api >/tmp/hindsight-v017.log 2>&1 &
+          echo $! >/tmp/hindsight-v017.pid
+
+          ready=0
+          for i in $(seq 1 180); do
+            if curl -fsS http://127.0.0.1:8888/openapi.json >/dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            if ! kill -0 "$(cat /tmp/hindsight-v017.pid)" 2>/dev/null; then
+              echo "Hindsight process exited before readiness"
+              cat /tmp/hindsight-v017.log || true
+              exit 1
+            fi
+            sleep 2
+          done
+
+          if [ "$ready" -ne 1 ]; then
+            echo "Hindsight did not become ready"
+            cat /tmp/hindsight-v017.log || true
+            exit 1
+          fi
+
+          echo "Hindsight ready"
+          tail -n 80 /tmp/hindsight-v017.log || true
+
+      - name: Run Hindsight retrieval fixture
+        shell: bash
+        run: |
+          mkdir -p recovery-lab/v017/out
+          python recovery-lab/v017/run_hindsight.py \
+            --fixture recovery-lab/v017/fixture.json \
+            --url http://127.0.0.1:8888 \
+            --output recovery-lab/v017/out/hindsight.json
+
+      - name: Dump Hindsight log on failure
+        if: failure()
+        run: cat /tmp/hindsight-v017.log || true
+
+      - name: Upload Hindsight result
+        uses: actions/upload-artifact@v4
+        with:
+          name: v017-hindsight-results
+          path: recovery-lab/v017/out/hindsight.json
+          if-no-files-found: error
+
+  compare:
+    name: Compare retrieval evidence
+    needs: [threadline, hindsight]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: v017-threadline-results
+          path: /tmp/threadline
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: v017-hindsight-results
+          path: /tmp/hindsight
+
+      - name: Build neutral comparison report
+        run: |
+          python recovery-lab/v017/compare_results.py \
+            --threadline /tmp/threadline/threadline.json \
+            --hindsight /tmp/hindsight/hindsight.json \
+            --output recovery-lab/v017/out/retrieval-lab-v017.md
+
+      - name: Publish report in job summary
+        run: cat recovery-lab/v017/out/retrieval-lab-v017.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload comparison report
+        uses: actions/upload-artifact@v4
+        with:
+          name: v017-retrieval-comparison
+          path: recovery-lab/v017/out/retrieval-lab-v017.md
+          if-no-files-found: error
