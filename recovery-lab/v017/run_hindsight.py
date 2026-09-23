@@ -127,12 +127,16 @@ def main():
     # Source-authoritative derived metadata only: no LLM inference.
     # ChatGPT timestamps are already known; synthetic graph entities are explicitly fixture-provided.
     async def enrich_source_metadata():
+        # Generated async API clients own aiohttp sessions bound to their creation loop.
+        # Use a fresh client inside this loop; do not reuse the sync wrapper's session.
+        async_client = Hindsight(base_url=args.url)
+
         async def wait_for_idle(attempts=180, interval=0.5):
             await asyncio.sleep(interval)
             for _ in range(attempts):
                 busy = False
                 for state in ("pending", "processing"):
-                    res = await client.operations.list_operations(bank_id=BANK, status=state, limit=1)
+                    res = await async_client.operations.list_operations(bank_id=BANK, status=state, limit=1)
                     if res.operations:
                         busy = True
                         break
@@ -146,7 +150,7 @@ def main():
             entities = d.get("entities", [])
             if not needs_time and not entities:
                 continue
-            page = await client.memory.list_memories(bank_id=BANK, document_id=d["id"], limit=20)
+            page = await async_client.memory.list_memories(bank_id=BANK, document_id=d["id"], limit=20)
             for unit in page.items:
                 kwargs = {}
                 if needs_time:
@@ -156,7 +160,7 @@ def main():
                     kwargs["entities"] = entities
                     kwargs["resolve_entities"] = False
                 if kwargs:
-                    await client.memory.update_memory(
+                    await async_client.memory.update_memory(
                         bank_id=BANK,
                         memory_id=unit.id,
                         update_memory_request=UpdateMemoryRequest(**kwargs),
