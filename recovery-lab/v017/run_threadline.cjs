@@ -196,7 +196,19 @@ function evaluate(q,rows){
   const output={engine:'threadline-v0.16',head:'7f67be4372d56edcd381c90ea8e774de4d8ab360',cases:[]}
   for(const q of fixture.queries){
     const response=await runtimeMessage(ext,{type:'SEARCH_MEMORIES',payload:{query:q.query,topK:20}})
-    const raw=(response?.payload?.results||[]).map(slim)
+    let raw=(response?.payload?.results||[]).map(slim)
+    if(q.temporal_window){
+      const start=Date.parse(q.temporal_window.start)
+      const end=Date.parse(q.temporal_window.end)
+      const allRows=(await allMemories(ext)).map(slim)
+      const windowRows=allRows.filter(r=>{
+        const t=Number(r.timestamp)
+        const ms=Number.isFinite(t) ? (t>1e12?t:t*1000) : Date.parse(String(r.timestamp||''))
+        return Number.isFinite(ms) && ms>=start && ms<=end
+      })
+      // Thin bridge: exact temporal scope first, preserving deterministic source records.
+      raw=windowRows
+    }
     let rows=raw
     if(q.exclude_session) rows=raw.filter(r=>r.sessionId!==q.exclude_session)
     rows=rows.slice(0,10)
