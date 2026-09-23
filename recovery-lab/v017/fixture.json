@@ -1,0 +1,177 @@
+{
+  "version": 1,
+  "notes": "Synthetic retrieval torture fixture. No private/user corpus content.",
+  "current_session_id": "openai:lab-current",
+  "documents": [
+    {
+      "id": "lab-exact-003",
+      "session_id": "openai:lab-exact",
+      "timestamp": "2026-06-01T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Architecture marker ARCH-003 governs the cobalt routing layer. Its diagnostic token is COBALT_ORBIT_731."
+    },
+    {
+      "id": "lab-filename",
+      "session_id": "openai:lab-file",
+      "timestamp": "2026-06-02T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "The authoritative design note is stored in NEBULA_SPECS_2026-09-17.md and describes the observatory adapter."
+    },
+    {
+      "id": "lab-semantic",
+      "session_id": "openai:lab-semantic",
+      "timestamp": "2026-06-03T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "A domestic feline is resting peacefully on a comfortable sofa beside the window while afternoon light enters the room."
+    },
+    {
+      "id": "lab-policy-old",
+      "session_id": "openai:lab-policy-old",
+      "timestamp": "2026-05-01T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Early proposal: the derived index should become the permanent source of truth for Project Nebula."
+    },
+    {
+      "id": "lab-policy-new",
+      "session_id": "openai:lab-policy-new",
+      "timestamp": "2026-09-01T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Later correction and current rule: the immutable raw export remains the canonical source of truth; every index is derived and replaceable."
+    },
+    {
+      "id": "lab-branch-active",
+      "session_id": "openai:lab-branch",
+      "timestamp": "2026-06-04T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "The selected branch chose the ordinary silver adapter."
+    },
+    {
+      "id": "lab-branch-side",
+      "session_id": "openai:lab-branch",
+      "timestamp": "2026-06-04T12:01:00Z",
+      "branch": "inactive",
+      "source": "archive",
+      "content": "Inactive branch evidence contains SIDECHAIN_LANTERN_884 and proposes a violet adapter."
+    },
+    {
+      "id": "lab-history-config",
+      "session_id": "openai:lab-history",
+      "timestamp": "2026-07-01T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Historical recovery bridge configuration: use the amber relay and preserve provenance labels."
+    },
+    {
+      "id": "lab-current-config",
+      "session_id": "openai:lab-current",
+      "timestamp": "2026-09-22T12:00:00Z",
+      "branch": "active",
+      "source": "live",
+      "content": "Current-session text repeats the recovery bridge configuration phrase many times: recovery bridge configuration, recovery bridge configuration, recovery bridge configuration."
+    },
+    {
+      "id": "lab-continue-rule",
+      "session_id": "openai:lab-governance",
+      "timestamp": "2026-08-15T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "Governance rule: the words continue and proceed authorize continued work only; they do not mean approval, acceptance, or canonization."
+    },
+    {
+      "id": "lab-update-target",
+      "session_id": "openai:lab-update",
+      "timestamp": "2026-08-20T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "LIVE_VERSION_SENTINEL_902 is the surviving updated form of this document."
+    },
+    {
+      "id": "lab-distractor",
+      "session_id": "openai:lab-distractor",
+      "timestamp": "2026-04-10T12:00:00Z",
+      "branch": "active",
+      "source": "archive",
+      "content": "A gardening memo discusses violet flowers, silver watering cans, and ordinary window boxes."
+    }
+  ],
+  "queries": [
+    {
+      "id": "exact_identifier",
+      "query": "ARCH-003",
+      "expected": [
+        "lab-exact-003"
+      ],
+      "must_top1": true
+    },
+    {
+      "id": "exact_filename",
+      "query": "NEBULA_SPECS_2026-09-17.md",
+      "expected": [
+        "lab-filename"
+      ],
+      "must_top1": true
+    },
+    {
+      "id": "semantic_paraphrase",
+      "query": "kitten napping on a couch",
+      "expected": [
+        "lab-semantic"
+      ],
+      "must_top5": true
+    },
+    {
+      "id": "later_correction",
+      "query": "What is the canonical source of truth now?",
+      "expected": [
+        "lab-policy-new"
+      ],
+      "must_top5": true
+    },
+    {
+      "id": "inactive_branch",
+      "query": "SIDECHAIN_LANTERN_884",
+      "expected": [
+        "lab-branch-side"
+      ],
+      "must_top1": true
+    },
+    {
+      "id": "governance",
+      "query": "Does continue mean approval or just keep working?",
+      "expected": [
+        "lab-continue-rule"
+      ],
+      "must_top5": true
+    },
+    {
+      "id": "exclude_current_session",
+      "query": "recovery bridge configuration",
+      "expected": [
+        "lab-history-config"
+      ],
+      "exclude_session": "openai:lab-current",
+      "must_top5": true
+    },
+    {
+      "id": "updated_version",
+      "query": "LIVE_VERSION_SENTINEL_902",
+      "expected": [
+        "lab-update-target"
+      ],
+      "must_top1": true
+    },
+    {
+      "id": "stale_version_absent",
+      "query": "STALE_VERSION_SENTINEL_119",
+      "expected_absent": [
+        "lab-update-target"
+      ]
+    }
+  ]
+}
