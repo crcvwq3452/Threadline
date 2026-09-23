@@ -66,8 +66,12 @@ jobs:
               }
             )
             const worker=await workerFor(context)
+            await context.route('https://chatgpt.com/**',route=>route.fulfill({
+              status:200,contentType:'text/html',
+              body:'<!doctype html><html><head><title>Threadline UI CI</title></head><body><main>mock chatgpt</main></body></html>'
+            }))
             const page=await context.newPage()
-            await page.goto('https://chatgpt.com/',{waitUntil:'domcontentloaded',timeout:30000})
+            await page.goto('https://chatgpt.com/',{waitUntil:'domcontentloaded',timeout:10000})
             await page.locator('#ai-memory-float-root').waitFor({state:'attached',timeout:15000})
             const opened=await worker.evaluate(async()=>{
               const tabs=await chrome.tabs.query({})
@@ -94,13 +98,14 @@ jobs:
             // Move to the lower controls, reacquire the button after scrolling, and open it.
             await scroll.evaluate(el=>{ el.scrollTop = el.scrollHeight })
             await page.waitForTimeout(200)
-            let importBtn=panel.getByRole('button',{name:/Import backup/i})
-            if(!(await importBtn.count())) throw new Error('Import backup button missing')
+            const importContainer=panel.locator('input[type="file"]').first().locator('..')
+            let importBtn=importContainer.locator(':scope > button').first()
+            if(!(await importBtn.count())) throw new Error('Import toggle missing')
             await importBtn.click()
             await page.waitForTimeout(200)
 
-            let choose=panel.getByText(/CHOOSE IMPORT TYPE/i)
-            await choose.waitFor({state:'visible',timeout:10000})
+            let chatgptOption=panel.locator('button').filter({hasText:'ChatGPT (conversations.json)'}).first()
+            if(!(await chatgptOption.count())) throw new Error('Importer menu did not open')
 
             // Scroll the actual menu viewport again after the importer list expands.
             await scroll.evaluate(el=>{ el.scrollTop = el.scrollHeight })
@@ -136,11 +141,11 @@ jobs:
             // Collapse/reopen import after scrolling; reacquire each React node.
             await scroll.evaluate(el=>{ el.scrollTop = el.scrollHeight })
             await page.waitForTimeout(150)
-            let importBtnAgain=panel.getByRole('button',{name:/Import backup/i})
-            if(!(await importBtnAgain.count())) throw new Error('Import backup missing before collapse')
+            let importBtnAgain=importContainer.locator(':scope > button').first()
+            if(!(await importBtnAgain.count())) throw new Error('Import toggle missing before collapse')
             await importBtnAgain.click()
             await page.waitForTimeout(150)
-            importBtnAgain=panel.getByRole('button',{name:/Import backup/i})
+            importBtnAgain=importContainer.locator(':scope > button').first()
             await importBtnAgain.click()
             await page.waitForTimeout(150)
             chatgpt=panel.locator('button').filter({hasText:'ChatGPT (conversations.json)'}).first()
