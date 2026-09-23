@@ -139,7 +139,7 @@ const NUMBER_WORDS={
 function monthWindow(year,month){
   const start=Date.UTC(year,month,1,0,0,0)
   const end=Date.UTC(year,month+1,1,0,0,0)
-  return {start,end,label:\`\${year}-\${String(month+1).padStart(2,'0')}\`}
+  return {start,end,label:String(year)+'-'+String(month+1).padStart(2,'0')}
 }
 function parseTemporalWindow(query,referenceIso){
   const lower=query.toLowerCase()
@@ -164,7 +164,7 @@ function parseTemporalWindow(query,referenceIso){
     return {
       start:Date.UTC(year,2,1,0,0,0),
       end:Date.UTC(year,5,1,0,0,0),
-      label:\`\${year}-spring-mar-may\`
+      label:String(year)+'-spring-mar-may'
     }
   }
   return null
