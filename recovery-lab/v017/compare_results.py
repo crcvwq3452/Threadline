@@ -42,7 +42,7 @@ def main():
       "- Current-session exclusion is applied in the bridge layer for Threadline and as a native NOT tag filter for Hindsight.",
       "- A later LLM/observation benchmark, if run, must remain separate from this raw-evidence benchmark.",
     ]
-    pathlib.Path(args.output).write_text("\n".join(lines)+"\n",encoding="utf-8")
+    out=pathlib.Path(args.output)\n    out.parent.mkdir(parents=True, exist_ok=True)\n    out.write_text("\n".join(lines)+"\n",encoding="utf-8")
     print("\n".join(lines))
 
 if __name__=="__main__":
