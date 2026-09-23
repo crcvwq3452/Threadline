@@ -220,7 +220,17 @@ jobs:
             return panel
           }
 
+          async function readImportReport() {
+            return worker.evaluate(async()=>{
+              const stored=await chrome.storage.local.get(['threadlineLastImportReport'])
+              return stored.threadlineLastImportReport || null
+            })
+          }
+
           async function importFile(panel, filePath, timeout=90000) {
+            const before=await readImportReport()
+            const beforeAt=before?.at || null
+
             const toggle=panel.getByRole('button',{name:/Import backup/i})
             await toggle.click()
             const scroll=panel.locator('[data-testid="threadline-menu-scroll"]')
@@ -242,14 +252,17 @@ jobs:
             await provider.click({noWaitAfter:true})
             const input=panel.locator('input[type="file"][accept*=".json"]').last()
             await input.setInputFiles(filePath)
-            const start=Date.now()
-            while(Date.now()-start<timeout){
-              const txt=(await panel.innerText()).replace(/\s+/g,' ')
-              if(/Stored:\s*\d+;\s*skipped:\s*\d+|ChatGPT ZIP import complete|already imported/i.test(txt)) return txt
-              if(/import failed|failed to import/i.test(txt)) throw new Error('Import failure UI: '+txt)
+
+            const started=Date.now()
+            while(Date.now()-started<timeout){
+              const report=await readImportReport()
+              if(report?.at && report.at!==beforeAt){
+                if(report.status==='error') throw new Error('Import failure report: '+String(report.message||''))
+                if(report.status==='success') return String(report.message||'import complete')
+              }
               await sleep(250)
             }
-            throw new Error('Import timeout for '+filePath)
+            throw new Error('Import completion report timeout for '+filePath)
           }
 
           ;(async()=>{
@@ -261,8 +274,12 @@ jobs:
             let worker=await workerFor(context)
             const extensionId=new URL(worker.url()).host
 
+            await context.route('https://chatgpt.com/**',route=>route.fulfill({
+              status:200,contentType:'text/html',
+              body:'<!doctype html><html><head><title>Threadline Extended CI</title></head><body><main>mock chatgpt</main></body></html>'
+            }))
             const host=await context.newPage()
-            await host.goto('https://chatgpt.com/',{waitUntil:'domcontentloaded',timeout:30000})
+            await host.goto('https://chatgpt.com/',{waitUntil:'domcontentloaded',timeout:10000})
             await host.locator('#ai-memory-float-root').waitFor({state:'attached',timeout:15000})
             let panel=await openPanel(host,worker)
 
