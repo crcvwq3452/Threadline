@@ -3,7 +3,7 @@ name: Recovery v0.17 retrieval lab — Threadline vs Hindsight
 on:
   pull_request:
     branches:
-      - recovery-v0.11-ci-base
+      - recovery-v0.17-lab-base
   workflow_dispatch:
 
 permissions:
