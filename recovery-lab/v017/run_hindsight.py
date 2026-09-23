@@ -119,6 +119,7 @@ def main():
                 f"source:{d['source']}",
             ],
             "document_id": d["id"],
+            **({"entities": [{"text": e, "type": "CONCEPT"} for e in d.get("entities", [])], "resolve_entities": False} if d.get("entities") else {}),
         })
     client.retain_batch(bank_id=BANK, items=items)
 
@@ -138,6 +139,8 @@ def main():
             "max_tokens": 4096,
             "query_timestamp": "2026-09-22T12:00:00Z",
         }
+        if q.get("temporal_window"):
+            kwargs["temporal_window"] = q["temporal_window"]
         excluded = q.get("exclude_session")
         if excluded:
             kwargs["tag_groups"] = [{
