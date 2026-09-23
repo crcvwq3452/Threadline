@@ -138,6 +138,12 @@ function evaluate(q,rows){
   const reasons=[]
   if(q.must_top1 && rank!==1){pass=false;reasons.push(`expected top1, got rank=${rank}`)}
   if(q.must_top5 && (rank==null||rank>5)){pass=false;reasons.push(`expected top5, got rank=${rank}`)}
+  const expectedAll=q.expected_all_top5||[]
+  if(expectedAll.length){
+    const top5=new Set(ids.slice(0,5))
+    const missing=expectedAll.filter(x=>!top5.has(x))
+    if(missing.length){pass=false;reasons.push(`expected all in top5, missing=${JSON.stringify(missing)}`)}
+  }
   if(q.forbid_text && rows.some(r=>(r.content||'').includes(q.forbid_text))){
     pass=false;reasons.push(`forbidden stale text returned: ${q.forbid_text}`)
   }
