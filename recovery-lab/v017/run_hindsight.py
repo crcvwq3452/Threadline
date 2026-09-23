@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-import argparse, json, pathlib, time
+import argparse, asyncio, json, pathlib, time
 from dataclasses import asdict, is_dataclass
 
 from hindsight_client import Hindsight
+from hindsight_client_api.models.update_memory_request import UpdateMemoryRequest
 
 BANK = "threadline-v017-retrieval-lab"
 
@@ -122,6 +123,47 @@ def main():
             **({"entities": [{"text": e, "type": "CONCEPT"} for e in d.get("entities", [])], "resolve_entities": False} if d.get("entities") else {}),
         })
     client.retain_batch(bank_id=BANK, items=items)
+
+    # Source-authoritative derived metadata only: no LLM inference.
+    # ChatGPT timestamps are already known; synthetic graph entities are explicitly fixture-provided.
+    async def enrich_source_metadata():
+        async def wait_for_idle(attempts=180, interval=0.5):
+            await asyncio.sleep(interval)
+            for _ in range(attempts):
+                busy = False
+                for state in ("pending", "processing"):
+                    res = await client.operations.list_operations(bank_id=BANK, status=state, limit=1)
+                    if res.operations:
+                        busy = True
+                        break
+                if not busy:
+                    return
+                await asyncio.sleep(interval)
+            raise RuntimeError("Hindsight metadata enrichment did not settle")
+
+        for d in fixture["documents"]:
+            needs_time = str(d["id"]).startswith("lab-month-")
+            entities = d.get("entities", [])
+            if not needs_time and not entities:
+                continue
+            page = await client.memory.list_memories(bank_id=BANK, document_id=d["id"], limit=20)
+            for unit in page.items:
+                kwargs = {}
+                if needs_time:
+                    kwargs["occurred_start"] = d["timestamp"]
+                    kwargs["occurred_end"] = d["timestamp"]
+                if entities:
+                    kwargs["entities"] = entities
+                    kwargs["resolve_entities"] = False
+                if kwargs:
+                    await client.memory.update_memory(
+                        bank_id=BANK,
+                        memory_id=unit.id,
+                        update_memory_request=UpdateMemoryRequest(**kwargs),
+                    )
+        await wait_for_idle()
+
+    asyncio.run(enrich_source_metadata())
 
     results = {
         "engine": "hindsight",
