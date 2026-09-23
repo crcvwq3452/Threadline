@@ -123,7 +123,11 @@ function slim(r){
   return {
     id:rowId(r),sessionId:r.sessionId,content:r.content,
     timestamp:r.timestamp,roundIndex:r.roundIndex,branchIndex:r.branchIndex,
-    similarity:r.similarity,score:r.score,metadata:r.metadata
+    similarityScore:r.similarityScore,
+    vectorSimilarity:r.vectorSimilarity,
+    lexicalCoverage:r.lexicalCoverage,
+    lexicalMode:r.lexicalMode,
+    metadata:r.metadata
   }
 }
 function evaluate(q,rows){
